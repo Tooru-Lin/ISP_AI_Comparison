@@ -1,0 +1,33 @@
+# Build results
+bin/
+obj/
+[Bb]uild/
+[Bb]uilds/
+[Dd]ebug/
+[Rr]elease/
+x64/
+x86/
+*.exe
+*.dll
+*.pdb
+*.cache
+*.log
+
+# Visual Studio files
+.vs/
+*.user
+*.suo
+
+# NuGet
+*.nupkg
+packages/
+
+# Data folder (排除整個資料夾)
+data/
+
+# Others
+*.tmp
+*.bak
+*.swp
+*.DS_Store
+Thumbs.db
