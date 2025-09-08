@@ -41,10 +41,8 @@ void showPreview(const cv::Mat& img, const std::string& title, double scale);
 int main() {
 
     
-    // cv::Mat raw = loadRaw("C:/Users/eevo1/OneDrive/Desktop/ISP_AI_Comparison/data/raw/Fuji/Fuji/short/00001_00_0.1s.RAF");
     // cv::Mat raw16 = loadRawWithLibRaw("C:/Users/eevo1/OneDrive/Desktop/ISP_AI_Comparison/data/raw/Fuji/Fuji/long/00001_00_10s.RAF");
-
-    cv::Mat raw16 = loadRawWithLibRaw("C:/Users/eevo1/OneDrive/Desktop/ISP_AI_Comparison/data/raw/Sony/Sony/long/00001_00_10s.ARW");
+    cv::Mat raw16 = loadRawWithLibRaw("C:/Users/Tooru/Desktop/Project/ISP_AI_Comparison/data/raw/Sony/Sony/long/00001_00_10s.ARW");
     
     if (raw16.empty()) {
         std::cerr << "Failed to load image!" << std::endl;
@@ -53,8 +51,8 @@ int main() {
 
     // 原 raw
     double scale = 0.3;
-    showPreview(raw16, "Raw 8-bit", scale);
-    cv::imwrite("Test.tiff", raw16);
+    // showPreview(raw16, "Raw 8-bit", scale);
+    //cv::imwrite("Test.tiff", raw16);
     //......................................................................................................//
 
     // 將 16bit raw 展平成單行，找出1%和99%亮度位置
@@ -76,14 +74,14 @@ int main() {
 
     // 黑電平校正（假設改動 raw）
     blackLevelCorrection(raw16, blackLevel);
-    showPreview(raw16, "After Black Level Correction", 0.3);
+    // showPreview(raw16, "After Black Level Correction", 0.3);
     
     //......................................................................................................//
 
     // 白電平校正
     whiteLevelNormalization(raw16, whiteLevel - blackLevel); // 因為已經扣了 blackLevel, 所以這邊也要扣除
-    showPreview(raw16, "After White Level Normalization", 0.3);
-    cv::imwrite("whiteLevel.tiff", raw16);
+    // showPreview(raw16, "After White Level Normalization", 0.3);
+    //cv::imwrite("whiteLevel.tiff", raw16);
     
     //......................................................................................................//
     
@@ -95,7 +93,7 @@ int main() {
 
     // 去馬賽克 (Demosaic)
     cv::Mat bgr = demosaic(raw16);
-    showPreview(bgr, "After Demosaic", 0.3);
+    // showPreview(bgr, "After Demosaic", 0.3);
 
     cv::Mat bgr32;
     bgr.convertTo(bgr32, CV_32F, 65535);
@@ -109,7 +107,7 @@ int main() {
 
     // 色彩校正
     cv::Mat ccm = (cv::Mat_<float>(3, 3) << 1.5, -0.5, 0, -0.3, 1.2, 0.1, 0, -0.2, 1.3);
-    bgr32 = colorCorrection(bgr, ccm);
+    bgr32 = colorCorrection(bgr32, ccm);
     showPreview(bgr32, "After Color Correction", 0.3);
 
     //......................................................................................................//
@@ -291,15 +289,27 @@ cv::Mat reorderBayer_RGGB(const cv::Mat& raw32F) {
 cv::Mat colorCorrection(const cv::Mat& img, const cv::Mat& ccm) {
     cv::Mat img_f;
     img.convertTo(img_f, CV_32F);
-    cv::Mat corrected = cv::Mat::zeros(img.size(), img.type());
+    cv::Mat corrected = cv::Mat::zeros(img_f.size(), img_f.type());
+
+    std::cout << "img size: " << img.rows << "x" << img.cols
+        << ", type: " << img.type() << std::endl;
+
+    std::cout << "img_f type: " << img_f.type() << std::endl;
+
+    std::cout << "ccm size: " << ccm.rows << "x" << ccm.cols
+        << ", type: " << ccm.type() << std::endl;
+
+    cv::Vec3f row0(ccm.at<float>(0, 0), ccm.at<float>(0, 1), ccm.at<float>(0, 2));
+    cv::Vec3f row1(ccm.at<float>(1, 0), ccm.at<float>(1, 1), ccm.at<float>(1, 2));
+    cv::Vec3f row2(ccm.at<float>(2, 0), ccm.at<float>(2, 1), ccm.at<float>(2, 2));
 
     for (int y = 0; y < img.rows; y++) {
         for (int x = 0; x < img.cols; x++) {
             cv::Vec3f pix = img_f.at<cv::Vec3f>(y, x);
             cv::Vec3f new_pix;
-            new_pix[0] = pix.dot(ccm.row(0));
-            new_pix[1] = pix.dot(ccm.row(1));
-            new_pix[2] = pix.dot(ccm.row(2));
+            new_pix[0] = pix.dot(row0);
+            new_pix[1] = pix.dot(row1);
+            new_pix[2] = pix.dot(row2);
             corrected.at<cv::Vec3f>(y, x) = new_pix;
         }
     }
