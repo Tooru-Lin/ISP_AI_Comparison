@@ -21,13 +21,13 @@ class ImageProcessor:
 
 
 
-raw_short_path = "C:/Users/eevo1/OneDrive/Desktop/ISP_AI_Comparison/data/raw/Fuji/Fuji/short/00001_00_0.1s.RAF"
+raw_short_path = "C:/Users/eevo1/OneDrive/Desktop/ISP_AI_Comparison/data/raw/Sony/Sony/short/00001_00_0.1s.ARW"
 with rawpy.imread(raw_short_path) as raw:
     default_ISP_img = ImageProcessor.default_ISP(raw)
     small_bayer = cv2.resize(raw.raw_image_visible, (640, 480))
     
 
-raw_long_path = "C:/Users/eevo1/OneDrive/Desktop/ISP_AI_Comparison/data/raw/Fuji/Fuji/long/00001_00_10s.RAF"
+raw_long_path = "C:/Users/eevo1/OneDrive/Desktop/ISP_AI_Comparison/data/raw/Sony/Sony/long/00001_00_10s.ARW"
 with rawpy.imread(raw_long_path) as raw:
     rgb_long = raw.postprocess(
         use_camera_wb=True,      # 使用相機內建白平衡
@@ -43,4 +43,5 @@ show_three_images(
     cmap1=None, cmap2=None, cmap3=None
 )
 
-
+cv2.imwrite('RawPy Postprocessed RGB Image.png', cv2.cvtColor(default_ISP_img, cv2.COLOR_RGB2BGR))
+cv2.imwrite('Long Exposure RGB Image.png', cv2.cvtColor(rgb_long, cv2.COLOR_RGB2BGR))

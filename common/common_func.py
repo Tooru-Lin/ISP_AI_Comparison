@@ -13,7 +13,7 @@ def show_image(img, title='', cmap=None):
 
 
 def show_two_images(img1, title1, img2, title2, cmap1=None, cmap2=None):
-    plt.figure(figsize=(6,4))
+    plt.figure(figsize=(9,6))
 
     plt.subplot(1, 2, 1)
     plt.imshow(img1, cmap=cmap1)
@@ -29,7 +29,7 @@ def show_two_images(img1, title1, img2, title2, cmap1=None, cmap2=None):
 
 
 def show_three_images(img1, title1, img2, title2, img3, title3, cmap1=None, cmap2=None, cmap3=None):
-    plt.figure(figsize=(12,4))
+    plt.figure(figsize=(18,6))
 
     plt.subplot(1, 3, 1)
     plt.imshow(img1, cmap=cmap1)
@@ -51,7 +51,7 @@ def show_three_images(img1, title1, img2, title2, img3, title3, cmap1=None, cmap
 
 
 def show_four_images(img1, title1, img2, title2, img3, title3, img4, title4, cmap1=None, cmap2=None, cmap3=None, cmap4=None):
-    plt.figure(figsize=(18,4))
+    plt.figure(figsize=(27,6))
 
     plt.subplot(1, 4, 1)
     plt.imshow(img1, cmap=cmap1)
