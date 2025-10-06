@@ -1,26 +1,70 @@
 #include <iostream>
 #include <opencv2/opencv.hpp>
 #include <libraw/libraw.h>
+#include <unordered_map>
+#include <any>
+#include <string>
+
+#pragma once
+#include <opencv2/opencv.hpp>
+#include <unordered_map>
+#include <stdexcept>
+#include <string>
+#include <vector>
 
 class ISP
 {
-
-private:
-    int ImgCount = 1;
-
-    // 取前幾大均值
-    double getBiggestMean(const cv::Mat& channel, double ratio = 0.05);
-
 public:
+    // Enum 定義
+    enum class AWB_Method { Default = 1, GrayWorld = 2, WhitePoint = 3 };
+    enum class Demosaic_Method { CCM = 1, AI = 2 };
+
+    // Constructor
+    ISP() {
+        // ----------------- Bool 參數 map -----------------
+        // map 直接存值，不用 reference
+        bool_params["DoWhiteBlackLevel"] = true;  // 是否執行黑白電平校正
+        bool_params["DoAWB"] = true;             // 是否執行白平衡
+        bool_params["DoDemosaic"] = true;        // 是否執行 demosaic
+        bool_params["DoCCM"] = false;             // 是否執行色彩校正(CCM)
+        bool_params["DoGamma"] = true;           // 是否執行 Gamma 校正
+        bool_params["DoSharpen"] = true;         // 是否執行銳化
+
+        // ----------------- Enum 參數 map -----------------
+        enumAWB_params["AWB_Method"] = AWB_Method::Default;       // 預設 AWB 方法
+        enumDemosaic_params["Demosaic_Method"] = Demosaic_Method::CCM; // 預設 demosaic 方法
+    }
+
+    // ----------------- Bool 參數操作 -----------------
+    void setParamBool(const std::string& key, bool value) {
+        if (bool_params.count(key))
+            bool_params[key] = value;
+        else throw std::invalid_argument("Invalid bool key");
+    }
+
+    bool getParamBool(const std::string& key) const {
+        if (bool_params.count(key))
+            return bool_params.at(key);
+        else throw std::invalid_argument("Invalid bool key");
+    }
+
+    // ----------------- Enum 參數操作 -----------------
+    void setParamAWB(AWB_Method value) { enumAWB_params["AWB_Method"] = value; }
+    void setParamDemosaic(Demosaic_Method value) { enumDemosaic_params["Demosaic_Method"] = value; }
+
+    AWB_Method getParamAWB() const { return enumAWB_params.at("AWB_Method"); }
+    Demosaic_Method getParamDemosaic() const { return enumDemosaic_params.at("Demosaic_Method"); }
+
+    // ----------------- 影像處理函數 -----------------
     cv::Mat loadRawWithLibRaw(
-        const std::string& filename, 
-        int& Width, 
-        int& Height, 
+        const std::string& filename,
+        int& Width,
+        int& Height,
         int& black,        // 輸出黑階
-        int& white,                                     // 輸出白階
-        std::vector<float>& cam_mul,                    // AWB before demosaic
-        std::vector<float>& pre_mul,                    // AWB after demosaic
-        cv::Mat& cam_xyz,                               // 輸出 3x3 相機→XYZ 矩陣
+        int& white,        // 輸出白階
+        std::vector<float>& cam_mul,  // AWB before demosaic
+        std::vector<float>& pre_mul,  // AWB after demosaic
+        cv::Mat& cam_xyz,             // 輸出 3x3 相機→XYZ 矩陣
         cv::Mat& xyz_srgb);
 
     // 黑電平校正
@@ -45,42 +89,63 @@ public:
     void whitePatchAWB(cv::Mat& img);
 
     // 色調映射與Gamma校正
-    void applyToneMapping(cv::Mat& img, float gamma);
+    void applyToneMapping(cv::Mat& img, float gamma = 1);
 
     // 銳化
-    void sharpening(cv::Mat& img);
+    void sharpening(cv::Mat& img, double Sharpening_Level = 0);
 
     // 壓縮與輸出
     void showPreview(const cv::Mat& img, const std::string& title, double scale = 1.0, bool autoContrast = true);
 
+    // 輔助函數
     void printMat(const cv::Mat& m, const std::string& name);
-
     void applyPreMul(cv::Mat& img, const std::vector<float> pre_mul);
+
+    // 取前幾大均值
+    double getBiggestMean(const cv::Mat& channel, double ratio = 0.05);
+
+    // 完整 pipeline
+    //int DoPipeline(std::string& path);
+
+private:
+    int ImgCount = 1;
+
+    // ----------------- Bool 參數 -----------------
+    std::unordered_map<std::string, bool> bool_params;
+
+    // ----------------- Enum 參數 -----------------
+    std::unordered_map<std::string, AWB_Method> enumAWB_params;
+    std::unordered_map<std::string, Demosaic_Method> enumDemosaic_params;
 };
 
 
 int main() {
 
+    std::string path = "C:/Users/eevo1/OneDrive/Desktop/ISP_AI_Comparison/data/raw/Sony/Sony/long/00001_00_10s.ARW";
+
     ISP isp; // stack 上創建，呼叫建構子
+
+    //int ErrCode = isp.DoPipeline(path);
+
+
+
     int black, white, width, height;
     std::vector<float> cam_mul;
     std::vector<float> pre_mul;
     cv::Mat cam_xyz, xyz_srgb;
     cv::Mat raw32;
     // cv::Mat raw16 = loadRawWithLibRaw("C:/Users/eevo1/OneDrive/Desktop/ISP_AI_Comparison/data/raw/Fuji/Fuji/long/00001_00_10s.RAF");
-    cv::Mat raw16 = isp.loadRawWithLibRaw("C:/Users/eevo1/OneDrive/Desktop/ISP_AI_Comparison/data/raw/Sony/Sony/long/00001_00_10s.ARW",
-                                            width, 
-                                            height, 
-                                            black,                      // 輸出黑階
-                                            white,                      // 輸出白階
-                                            cam_mul,                    // AWB before demosaic
-                                            pre_mul,                    // AWB after demosaic
-                                            cam_xyz,                    // 輸出 3x3 相機→XYZ 矩陣
-                                            xyz_srgb);
-    
-    
-    
-    
+    cv::Mat raw16 = isp.loadRawWithLibRaw(path,
+        width,
+        height,
+        black,                      // 輸出黑階
+        white,                      // 輸出白階
+        cam_mul,                    // AWB before demosaic
+        pre_mul,                    // AWB after demosaic
+        cam_xyz,                    // 輸出 3x3 相機→XYZ 矩陣
+        xyz_srgb);
+
+
     if (raw16.empty()) {
         std::cerr << "Failed to load image!" << std::endl;
         // 可能路徑錯或檔案問題
@@ -92,37 +157,25 @@ int main() {
     double scale = 0.3;
     isp.showPreview(raw32, "Origin", scale);
     //cv::imwrite("Test.tiff", raw16);
-    //......................................................................................................//
-
-    //// 將 16bit raw 展平成單行，找出1%和99%亮度位置
-    //cv::Mat sorted;
-    //raw16.reshape(1, 1).copyTo(sorted);
-    //cv::sort(sorted, sorted, cv::SORT_ASCENDING);
-
-    //// 取第 1 百分位的值（忽略最暗的 1%）
-    //int idx_min1 = static_cast<int>(sorted.total() * 0.01);
-    //uint16_t blackLevel = sorted.at<uint16_t>(idx_min1);
-    //std::cout << "Estimated black level (1th percentile): " << blackLevel << std::endl;
-
-    //// 取第 99 百分位的值（忽略最亮的 1%）
-    //int idx_max99 = static_cast<int>(sorted.total() * 0.99);
-    //uint16_t whiteLevel = sorted.at<uint16_t>(idx_max99);
-    //std::cout << "Estimated white level (99th percentile): " << whiteLevel << std::endl;
-
-    
-    //......................................................................................................//
-
-    // 黑電平校正（假設改動 raw）
-    isp.blackLevelCorrection(raw32, black);
-    // 白電平校正
-    isp.whiteLevelNormalization(raw32, white - black); // 因為已經扣了 blackLevel, 所以這邊也要扣除
-    
-    cv::threshold(raw32, raw32, 0.0, 0.0, cv::THRESH_TOZERO); // clip <0
-    cv::threshold(raw32, raw32, 1.0, 1.0, cv::THRESH_TRUNC);  // clip >1
-    isp.showPreview(raw32, "White Level Normalization", scale);
 
     //......................................................................................................//
-    
+
+    if (isp.getParamBool("DoWhiteBlackLevel"))
+    {
+        // 黑電平校正（假設改動 raw）
+        isp.blackLevelCorrection(raw32, black);
+        // 白電平校正
+        isp.whiteLevelNormalization(raw32, white - black); // 因為已經扣了 blackLevel, 所以這邊也要扣除
+
+        cv::threshold(raw32, raw32, 0.0, 0.0, cv::THRESH_TOZERO); // clip <0
+        cv::threshold(raw32, raw32, 1.0, 1.0, cv::THRESH_TRUNC);  // clip >1
+        isp.showPreview(raw32, "White Level Normalization", scale);
+    }
+
+
+
+    //......................................................................................................//
+
     //// 去噪
     //isp.noiseReduction(raw16);
     //isp.showPreview(raw16, "Noise Reduction", scale);
@@ -130,89 +183,121 @@ int main() {
     //......................................................................................................//
 
 
-    std::vector<float> cam_mul_normalized(4);
-    float g_ref = cam_mul[1]; // choose G as reference
-
-    cam_mul_normalized[0] = cam_mul[0] / g_ref; // R
-    cam_mul_normalized[1] = cam_mul[1] / g_ref; // G (first G)
-    cam_mul_normalized[2] = cam_mul[1] / g_ref; // second G (depends on ordering)
-    cam_mul_normalized[3] = cam_mul[2] / g_ref; // B
-
-    // 套用 AWB Gain
-    for (int y = 0; y < height; y++)
+    if (isp.getParamBool("DoAWB") && isp.getParamAWB() == ISP::AWB_Method::Default)
     {
-        float* row = raw32.ptr<float>(y);
-        for (int x = 0; x < width; x++)
+        if (isp.getParamBool("DoAWB") && isp.getParamAWB() == ISP::AWB_Method::Default)
         {
-            int idx = ((y & 1) << 1) | (x & 1);
-            row[x] *= cam_mul_normalized[idx];
+            std::vector<float> cam_mul_normalized(4);
+            float g_ref = cam_mul[1]; // choose G as reference
+
+            cam_mul_normalized[0] = cam_mul[0] / g_ref; // R
+            cam_mul_normalized[1] = cam_mul[1] / g_ref; // G (first G)
+            cam_mul_normalized[2] = cam_mul[1] / g_ref; // second G (depends on ordering)
+            cam_mul_normalized[3] = cam_mul[2] / g_ref; // B
+
+            // 套用 AWB Gain
+            for (int y = 0; y < height; y++)
+            {
+                float* row = raw32.ptr<float>(y);
+                for (int x = 0; x < width; x++)
+                {
+                    int idx = ((y & 1) << 1) | (x & 1);
+                    row[x] *= cam_mul_normalized[idx];
+                }
+            }
+
+
+            cv::threshold(raw32, raw32, 0.0, 0.0, cv::THRESH_TOZERO); // clip <0
+            cv::threshold(raw32, raw32, 1.0, 1.0, cv::THRESH_TRUNC);  // clip >1
+            isp.showPreview(raw32, "AWB 1", scale);
         }
     }
-    
-    cv::threshold(raw32, raw32, 0.0, 0.0, cv::THRESH_TOZERO); // clip <0
-    cv::threshold(raw32, raw32, 1.0, 1.0, cv::THRESH_TRUNC);  // clip >1
-    isp.showPreview(raw32, "AWB 1", scale);
     //......................................................................................................//
 
     // 去馬賽克 (Demosaic)
-    cv::Mat bgr32 = isp.demosaic(raw32);
+    cv::Mat bgr32;
+    if (isp.getParamBool("DoDemosaic") && isp.getParamDemosaic() == ISP::Demosaic_Method::CCM)
+    {
+        bgr32 = isp.demosaic(raw32);
 
-    cv::threshold(bgr32, bgr32, 0.0, 0.0, cv::THRESH_TOZERO); // clip <0
-    cv::threshold(bgr32, bgr32, 1.0, 1.0, cv::THRESH_TRUNC);  // clip >1
-    isp.showPreview(bgr32, "Demosaic", 0.3);
+        cv::threshold(bgr32, bgr32, 0.0, 0.0, cv::THRESH_TOZERO); // clip <0
+        cv::threshold(bgr32, bgr32, 1.0, 1.0, cv::THRESH_TRUNC);  // clip >1
+        isp.showPreview(bgr32, "Demosaic", 0.3);
+    }
+
     //......................................................................................................//
 
-    //// 白平衡
-    //isp.whiteBalanceGrayWorld(bgr32);
-    //isp.showPreview(bgr32, "GrayWorld", scale);
-    
-    //isp.whitePatchAWB(bgr32);
-    //isp.showPreview(bgr32, "whitePatch", scale);
+    // 白平衡
+    if (isp.getParamBool("DoAWB") && isp.getParamAWB() == ISP::AWB_Method::GrayWorld)
+    {
+        isp.whiteBalanceGrayWorld(bgr32);
+        isp.showPreview(bgr32, "GrayWorld", scale);
+
+        isp.applyPreMul(bgr32, pre_mul);
+        cv::threshold(bgr32, bgr32, 0.0, 0.0, cv::THRESH_TOZERO); // clip <0
+        cv::threshold(bgr32, bgr32, 1.0, 1.0, cv::THRESH_TRUNC);  // clip >1
+        isp.showPreview(bgr32, "awb 2", scale);
+    }
+
+    if (isp.getParamBool("DoAWB") && isp.getParamAWB() == ISP::AWB_Method::WhitePoint)
+    {
+        isp.whitePatchAWB(bgr32);
+        isp.showPreview(bgr32, "whitePatch", scale);
+    }
 
 
     //isp.applyPreMul(bgr32, pre_mul);
     //cv::threshold(bgr32, bgr32, 0.0, 0.0, cv::THRESH_TOZERO); // clip <0
     //cv::threshold(bgr32, bgr32, 1.0, 1.0, cv::THRESH_TRUNC);  // clip >1
-    //isp.showPreview(bgr32, "AWB 2", scale);
+    //isp.showPreview(bgr32, "awb 2", scale);
+
     //......................................................................................................//
 
-    
+
     // 色彩校正
-    cv::Mat ccm = xyz_srgb * cam_xyz;
+    if (isp.getParamBool("DoCCM"))
+    {
+        cv::Mat ccm = xyz_srgb * cam_xyz;
 
-    isp.printMat(xyz_srgb, "xyz_srgb");
-    isp.printMat(cam_xyz.t(), "cam_xyz");
-    isp.printMat(ccm, "ccm");
-    bgr32 = isp.colorCorrection(bgr32, ccm);
-    
-    //cv::Mat ccm = cv::Mat::eye(3, 3, CV_32F);
-    //isp.printMat(ccm, "ccm");
+        isp.printMat(xyz_srgb, "xyz_srgb");
+        isp.printMat(cam_xyz.t(), "cam_xyz");
+        isp.printMat(ccm, "ccm");
+        bgr32 = isp.colorCorrection(bgr32, ccm);
 
-    //bgr32 = isp.colorCorrection(bgr32, ccm);
-    
-    
-    cv::threshold(bgr32, bgr32, 0.0, 0.0, cv::THRESH_TOZERO); // clip <0
-    cv::threshold(bgr32, bgr32, 1.0, 1.0, cv::THRESH_TRUNC);  // clip >1
-    isp.showPreview(bgr32, "Color Correction", scale);
+
+
+        cv::threshold(bgr32, bgr32, 0.0, 0.0, cv::THRESH_TOZERO); // clip <0
+        cv::threshold(bgr32, bgr32, 1.0, 1.0, cv::THRESH_TRUNC);  // clip >1
+        isp.showPreview(bgr32, "Color Correction", scale);
+    }
+
+
     //......................................................................................................//
 
 
     // 色調映射
-    isp.applyToneMapping(bgr32, 2.2f);
+    if (isp.getParamBool("DoGamma"))
+    {
+        isp.applyToneMapping(bgr32, 1.8f);
 
-    cv::threshold(bgr32, bgr32, 0.0, 0.0, cv::THRESH_TOZERO); // clip <0
-    cv::threshold(bgr32, bgr32, 1.0, 1.0, cv::THRESH_TRUNC);  // clip >1
-    isp.showPreview(bgr32, "Tone Mapping", scale);
-
+        cv::threshold(bgr32, bgr32, 0.0, 0.0, cv::THRESH_TOZERO); // clip <0
+        cv::threshold(bgr32, bgr32, 1.0, 1.0, cv::THRESH_TRUNC);  // clip >1
+        isp.showPreview(bgr32, "Tone Mapping", scale);
+    }
 
     //......................................................................................................//
 
     // 銳化
-    isp.sharpening(bgr32);
 
-    cv::threshold(bgr32, bgr32, 0.0, 0.0, cv::THRESH_TOZERO); // clip <0
-    cv::threshold(bgr32, bgr32, 1.0, 1.0, cv::THRESH_TRUNC);  // clip >1
-    isp.showPreview(bgr32, "Sharpening", scale);
+    if (isp.getParamBool("DoSharpen"))
+    {
+        isp.sharpening(bgr32);
+
+        cv::threshold(bgr32, bgr32, 0.0, 0.0, cv::THRESH_TOZERO); // clip <0
+        cv::threshold(bgr32, bgr32, 1.0, 1.0, cv::THRESH_TRUNC);  // clip >1
+        isp.showPreview(bgr32, "Sharpening", scale);
+    }
+
 
     //......................................................................................................//
 
@@ -221,6 +306,8 @@ int main() {
     //// 儲存輸出
     //cv::imwrite("output.png", rgb8bit);
 
+
+    
     return 0;
 }
 
@@ -262,7 +349,8 @@ cv::Mat ISP::loadRawWithLibRaw(
     for (int y = 0; y < 2; y++) {
         for (int x = 0; x < 2; x++) {
             int idx = libraw_COLOR(data, x, y);
-            std::cout << RawProcessor.imgdata.idata.cdesc[idx] << " ";
+            std::cout << RawProcessor.imgdata.idata.cdesc[idx] << "("
+                << data->rawdata.raw_image[y * data->sizes.width + x] << ") ";
         }
         std::cout << std::endl;
     }
@@ -336,9 +424,9 @@ void ISP::applyPreMul(cv::Mat& img, const std::vector<float> pre_mul) {
     std::vector<cv::Mat> channels(3);
     cv::split(img, channels);
 
-    channels[0] *= pre_mul[2]; // B
+    channels[0] *= pre_mul[0]; // B
     channels[1] *= pre_mul[1]; // G
-    channels[2] *= pre_mul[0]; // R
+    channels[2] *= pre_mul[2]; // R
 
     cv::merge(channels, img);
 }
@@ -432,7 +520,7 @@ cv::Mat ISP::demosaic(const cv::Mat& rawIn) {
 
     // 5. demosaic
     cv::Mat bgr16;
-    cv::cvtColor(raw16, bgr16, cv::COLOR_BayerRG2BGR); // Bayer pattern 視 sensor 而定
+    cv::cvtColor(raw16, bgr16, cv::COLOR_BayerBG2BGR); // Bayer pattern 視 sensor 而定
 
     // 6. 轉回 float 0~1
     cv::Mat bgr32;
@@ -448,25 +536,6 @@ cv::Mat ISP::colorCorrection(const cv::Mat& img, const cv::Mat& ccm) {
 
     cv::cvtColor(img, img_rgb, cv::COLOR_BGR2RGB); // BGR -> RGB
     cv::transform(img_rgb, corrected_rgb, ccm); // RGB -> sRGB
-    //corrected_rgb = img_rgb.clone(); // 複製一份
-
-    //for (int y = 0; y < img_rgb.rows; y++) {
-    //    cv::Vec3f* ptr = corrected_rgb.ptr<cv::Vec3f>(y);
-    //    for (int x = 0; x < img_rgb.cols; x++) {
-    //        float R = img_rgb.at<cv::Vec3f>(y, x)[0];
-    //        float G = img_rgb.at<cv::Vec3f>(y, x)[1];
-    //        float B = img_rgb.at<cv::Vec3f>(y, x)[2];
-
-    //        std::cerr << ccm.at<float>(0, 1) << std::endl;
-
-    //        float R_corr = ccm.at<float>(0, 0) * R + ccm.at<float>(0, 1) * G + ccm.at<float>(0, 2) * B;
-    //        float G_corr = ccm.at<float>(1, 0) * R + ccm.at<float>(1, 1) * G + ccm.at<float>(1, 2) * B;
-    //        float B_corr = ccm.at<float>(2, 0) * R + ccm.at<float>(2, 1) * G + ccm.at<float>(2, 2) * B;
-
-    //        ptr[x] = cv::Vec3f(R_corr, G_corr, B_corr);
-    //    }
-    //}
-
 
     cv::cvtColor(corrected_rgb, corrected_bgr, cv::COLOR_RGB2BGR); // back to BGR
     return corrected_bgr;
@@ -526,10 +595,10 @@ void ISP::applyToneMapping(cv::Mat& img_float, float gamma) {
     cv::pow(tmp, 1.0 / gamma, img_float);
 }
 
-void ISP::sharpening(cv::Mat& img) {
+void ISP::sharpening(cv::Mat& img, double Sharpening_Level) {
     cv::Mat blurred;
     cv::GaussianBlur(img, blurred, cv::Size(0, 0), 3);
-    cv::addWeighted(img, 1.5, blurred, -0.5, 0, img);
+    cv::addWeighted(img, 1 + Sharpening_Level, blurred, -Sharpening_Level, 0, img);
 }
 
 void ISP::showPreview(const cv::Mat& img, const std::string& title, double scale, bool autoContrast) {
@@ -576,5 +645,184 @@ void ISP::showPreview(const cv::Mat& img, const std::string& title, double scale
     cv::imshow(title, preview8);
     cv::waitKey(0);
 }
+
+//int ISP::DoPipeline(std::string& path)
+//{
+//    
+//    int black, white, width, height;
+//    std::vector<float> cam_mul;
+//    std::vector<float> pre_mul;
+//    cv::Mat cam_xyz, xyz_srgb;
+//    cv::Mat raw32;
+//    // cv::Mat raw16 = loadRawWithLibRaw("C:/Users/eevo1/OneDrive/Desktop/ISP_AI_Comparison/data/raw/Fuji/Fuji/long/00001_00_10s.RAF");
+//    cv::Mat raw16 = ISP::loadRawWithLibRaw(path,
+//        width,
+//        height,
+//        black,                      // 輸出黑階
+//        white,                      // 輸出白階
+//        cam_mul,                    // AWB before demosaic
+//        pre_mul,                    // AWB after demosaic
+//        cam_xyz,                    // 輸出 3x3 相機→XYZ 矩陣
+//        xyz_srgb);
+//
+//
+//    if (raw16.empty()) {
+//        std::cerr << "Failed to load image!" << std::endl;
+//        // 可能路徑錯或檔案問題
+//    }
+//    raw16.convertTo(raw32, CV_32F);
+//
+//
+//    // 原 raw
+//    double scale = 0.3;
+//    ISP::showPreview(raw32, "Origin", scale);
+//    //cv::imwrite("Test.tiff", raw16);
+//
+//    //......................................................................................................//
+//
+//    if (ISP::DoWhiteBlackLevel)
+//    {
+//        // 黑電平校正（假設改動 raw）
+//        ISP::blackLevelCorrection(raw32, black);
+//        // 白電平校正
+//        ISP::whiteLevelNormalization(raw32, white - black); // 因為已經扣了 blackLevel, 所以這邊也要扣除
+//
+//        cv::threshold(raw32, raw32, 0.0, 0.0, cv::THRESH_TOZERO); // clip <0
+//        cv::threshold(raw32, raw32, 1.0, 1.0, cv::THRESH_TRUNC);  // clip >1
+//        ISP::showPreview(raw32, "White Level Normalization", scale);
+//    }
+//
+//    
+//
+//    //......................................................................................................//
+//
+//    //// 去噪
+//    //isp.noiseReduction(raw16);
+//    //isp.showPreview(raw16, "Noise Reduction", scale);
+//
+//    //......................................................................................................//
+//
+//
+//
+//    if (ISP::DoAWB && getParamAWB() == ISP::AWB_Method::Default)
+//    {
+//        std::vector<float> cam_mul_normalized(4);
+//        float g_ref = cam_mul[1]; // choose G as reference
+//
+//        cam_mul_normalized[0] = cam_mul[0] / g_ref; // R
+//        cam_mul_normalized[1] = cam_mul[1] / g_ref; // G (first G)
+//        cam_mul_normalized[2] = cam_mul[1] / g_ref; // second G (depends on ordering)
+//        cam_mul_normalized[3] = cam_mul[2] / g_ref; // B
+//
+//        // 套用 AWB Gain
+//        for (int y = 0; y < height; y++)
+//        {
+//            float* row = raw32.ptr<float>(y);
+//            for (int x = 0; x < width; x++)
+//            {
+//                int idx = ((y & 1) << 1) | (x & 1);
+//                row[x] *= cam_mul_normalized[idx];
+//            }
+//        }
+//
+//
+//        cv::threshold(raw32, raw32, 0.0, 0.0, cv::THRESH_TOZERO); // clip <0
+//        cv::threshold(raw32, raw32, 1.0, 1.0, cv::THRESH_TRUNC);  // clip >1
+//        ISP::showPreview(raw32, "AWB 1", scale);
+//    }
+//    
+//        //......................................................................................................//
+//
+//    // 去馬賽克 (Demosaic)
+//    cv::Mat bgr32 = ISP::demosaic(raw32);
+//
+//    cv::threshold(bgr32, bgr32, 0.0, 0.0, cv::THRESH_TOZERO); // clip <0
+//    cv::threshold(bgr32, bgr32, 1.0, 1.0, cv::THRESH_TRUNC);  // clip >1
+//    ISP::showPreview(bgr32, "Demosaic", 0.3);
+//
+//
+//    //......................................................................................................//
+//
+//    // 白平衡
+//    if (ISP::DoAWB && getParamAWB() == ISP::AWB_Method::GrayWorld)
+//    {
+//        ISP::whiteBalanceGrayWorld(bgr32);
+//        ISP::showPreview(bgr32, "GrayWorld", scale);
+//
+//        ISP::applyPreMul(bgr32, pre_mul);
+//        cv::threshold(bgr32, bgr32, 0.0, 0.0, cv::THRESH_TOZERO); // clip <0
+//        cv::threshold(bgr32, bgr32, 1.0, 1.0, cv::THRESH_TRUNC);  // clip >1
+//        ISP::showPreview(bgr32, "awb 2", scale);
+//    }
+//
+//    if (ISP::DoAWB && getParamAWB() == ISP::AWB_Method::WhitePoint)
+//    {
+//        ISP::whitePatchAWB(bgr32);
+//        ISP::showPreview(bgr32, "whitePatch", scale);
+//    }
+//
+//    
+//    //ISP::applyPreMul(bgr32, pre_mul);
+//    //cv::threshold(bgr32, bgr32, 0.0, 0.0, cv::THRESH_TOZERO); // clip <0
+//    //cv::threshold(bgr32, bgr32, 1.0, 1.0, cv::THRESH_TRUNC);  // clip >1
+//    //ISP::showPreview(bgr32, "awb 2", scale);
+//
+//    //......................................................................................................//
+//
+//
+//    // 色彩校正
+//    if (ISP::DoCCM)
+//    {
+//        cv::Mat ccm = xyz_srgb * cam_xyz;
+//
+//        ISP::printMat(xyz_srgb, "xyz_srgb");
+//        ISP::printMat(cam_xyz.t(), "cam_xyz");
+//        ISP::printMat(ccm, "ccm");
+//        bgr32 = ISP::colorCorrection(bgr32, ccm);
+//
+//
+//
+//        cv::threshold(bgr32, bgr32, 0.0, 0.0, cv::THRESH_TOZERO); // clip <0
+//        cv::threshold(bgr32, bgr32, 1.0, 1.0, cv::THRESH_TRUNC);  // clip >1
+//        ISP::showPreview(bgr32, "Color Correction", scale);
+//    }
+//
+//
+//    //......................................................................................................//
+//
+//
+//    // 色調映射
+//    if (ISP::DoGamma)
+//    {
+//        ISP::applyToneMapping(bgr32, 1.8f);
+//
+//        cv::threshold(bgr32, bgr32, 0.0, 0.0, cv::THRESH_TOZERO); // clip <0
+//        cv::threshold(bgr32, bgr32, 1.0, 1.0, cv::THRESH_TRUNC);  // clip >1
+//        ISP::showPreview(bgr32, "Tone Mapping", scale);
+//    }
+//
+//    //......................................................................................................//
+//
+//    // 銳化
+//
+//    if (ISP::DoSharpen)
+//    {
+//        ISP::sharpening(bgr32);
+//
+//        cv::threshold(bgr32, bgr32, 0.0, 0.0, cv::THRESH_TOZERO); // clip <0
+//        cv::threshold(bgr32, bgr32, 1.0, 1.0, cv::THRESH_TRUNC);  // clip >1
+//        ISP::showPreview(bgr32, "Sharpening", scale);
+//    }
+//
+//
+//    //......................................................................................................//
+//
+//    //cv::Mat rgb8bit;
+//    //bgr32.convertTo(rgb8bit, CV_8U, 255.0);
+//    //// 儲存輸出
+//    //cv::imwrite("output.png", rgb8bit);
+//
+//    
+////}
 
 

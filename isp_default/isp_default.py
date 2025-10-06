@@ -31,7 +31,7 @@ raw_long_path = "C:/Users/eevo1/OneDrive/Desktop/ISP_AI_Comparison/data/raw/Sony
 with rawpy.imread(raw_long_path) as raw:
     rgb_long = raw.postprocess(
         use_camera_wb=True,      # 使用相機內建白平衡
-        no_auto_bright=True,     # 不自動調整亮度
+        no_auto_bright=False,     # 不自動調整亮度
         output_bps=8             # 輸出8位元影像
     )
 
