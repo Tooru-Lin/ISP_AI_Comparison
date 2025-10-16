@@ -4,36 +4,30 @@ import torch.optim as optim
 from tqdm import tqdm
 import os
 import sys
+import time
 from torch.utils.data import DataLoader, Dataset
 from torchvision import transforms
 from torch.utils.tensorboard import SummaryWriter
 
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 from isp_ai.unet import UNet
-from data.BayerDataset import BayerDataset  # 你可以自訂這個class
-
-import torch
-import torch.nn as nn
-import torch.optim as optim
-from tqdm import tqdm
-import os
-import sys
-from torch.utils.data import DataLoader, Dataset
-from torchvision import transforms
-from torch.utils.tensorboard import SummaryWriter
-
-sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
-from isp_ai.unet import UNet
-from data.BayerDataset import BayerDataset  # 你可以自訂這個class
+from data.PreprocessedCropDataset import PreprocessedCropDataset
 
 def main():
-    # 1️⃣ Dataset
-    train_dataset = BayerDataset("C:/Users/eevo1/OneDrive/Desktop/ISP_AI_Comparison/data/raw/Sony/Sony_train_list.txt")
-    val_dataset   = BayerDataset("C:/Users/eevo1/OneDrive/Desktop/ISP_AI_Comparison/data/raw/Sony/Sony_val_list.txt")
+    # # 1️⃣ Dataset
+    # train_dataset = BayerDataset("C:/Users/eevo1/OneDrive/Desktop/ISP_AI_Comparison/data/raw/Sony/Sony_train_list.txt")
+    # val_dataset   = BayerDataset("C:/Users/eevo1/OneDrive/Desktop/ISP_AI_Comparison/data/raw/Sony/Sony_val_list.txt")
 
-    # 2️⃣ DataLoader
-    train_loader = DataLoader(train_dataset, batch_size=4, shuffle=True, num_workers=4, pin_memory=True)
-    val_loader   = DataLoader(val_dataset, batch_size=4, shuffle=False, num_workers=4, pin_memory=True)
+    # # 2️⃣ DataLoader
+    # train_loader = DataLoader(train_dataset, batch_size=4, shuffle=True, num_workers=4, pin_memory=True)
+    # val_loader   = DataLoader(val_dataset, batch_size=4, shuffle=False, num_workers=4, pin_memory=True)
+
+    train_dataset   = PreprocessedCropDataset("C:/Users/eevo1/OneDrive/Desktop/ISP_AI_Comparison/data/raw/Sony/Train_Crops")
+    val_dataset = PreprocessedCropDataset("C:/Users/eevo1/OneDrive/Desktop/ISP_AI_Comparison/data/raw/Sony/Val_Crops")
+
+
+    train_loader = DataLoader(train_dataset, batch_size=7, shuffle=True, num_workers=4, pin_memory=True)
+    val_loader = DataLoader(val_dataset, batch_size=7, shuffle=False, num_workers=4, pin_memory=True)
 
     # 使用 GPU (如果可用)
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -41,17 +35,29 @@ def main():
 
     # 建立模型、損失函數和優化器
     model = UNet().to(device)
-    optimizer = optim.Adam(model.parameters(), lr=1e-4, weight_decay=1e-5)
+    optimizer = optim.AdamW(model.parameters(), lr=1e-5, weight_decay=1e-5)
     criterion = nn.SmoothL1Loss()
 
-    num_epochs = 200
-    writer = SummaryWriter("runs/ISP_Demosaic")
+    # 建立 checkpoints 目錄
+    os.makedirs("checkpoints", exist_ok=True)
 
-    for epoch in range(num_epochs):
+    num_epochs = 500
+    writer = SummaryWriter("runs/ISP_Demosaic")
+    best_loss = float('inf')
+    print_interval = 10  # 每隔多少秒打印一次
+
+    # 從斷點繼續訓練
+    ckpt = torch.load("checkpoints/unet_epoch204.pth")
+    model.load_state_dict(ckpt['model_state_dict'])
+    optimizer.load_state_dict(ckpt['optimizer_state_dict'])
+    start_epoch = ckpt['epoch'] + 1
+    
+    for epoch in range(start_epoch, num_epochs):
         model.train()
         total_loss = 0
 
-        for short, long in train_loader:
+        last_print = time.time()
+        for batch_idx, (short, long) in enumerate(train_loader):
             # short/long shape: B x N x C x H x W
             B, N, C_in, H, W = short.shape
             C_out = long.shape[2]  # RGB target 3ch
@@ -66,8 +72,18 @@ def main():
             optimizer.step()
             total_loss += loss.item()
 
+            # -------------------------------
+            # 每 print_interval 秒打印一次
+            # -------------------------------
+            # if time.time() - last_print > print_interval:
+            #     avg_loss = total_loss / (batch_idx + 1)
+            #     progress = (batch_idx + 1) / len(train_loader) * 100
+            #     sys.stdout.write(f"\rBatch {batch_idx+1}/{len(train_loader)} ({progress:.1f}%), Avg Loss: {avg_loss:.6f}")
+            #     sys.stdout.flush()
+            #     last_print = time.time()
+
         avg_train_loss = total_loss / len(train_loader)
-        print(f"Epoch [{epoch+1}/{num_epochs}], Train Loss: {avg_train_loss:.4f}")
+        print(f"\nEpoch [{epoch+1}/{num_epochs}], Train Loss: {avg_train_loss:.4f}")
         writer.add_scalar("Loss/train", avg_train_loss, epoch)
 
         # 驗證
@@ -75,9 +91,10 @@ def main():
         val_loss = 0
         with torch.no_grad():
             for short, long in val_loader:
-                B, N, C, H, W = short.shape
-                x_val = short.view(B*N, C, H, W).to(device)
-                y_val = long.view(B*N, C, H, W).to(device)
+                B, N, C_in, H, W = short.shape
+                C_out = long.shape[2]
+                x_val = short.view(B*N, C_in, H, W).to(device)
+                y_val = long.view(B*N, C_out, H, W).to(device)
                 out_val = model(x_val)
                 val_loss += criterion(out_val, y_val).item()
 
@@ -85,9 +102,13 @@ def main():
         print(f"[Val]   Epoch [{epoch+1}/{num_epochs}], Loss: {avg_val_loss:.4f}")
 
         # 保存模型
-        if (epoch + 1) % 10 == 0:
-            os.makedirs("checkpoints", exist_ok=True)
-            torch.save(model.state_dict(), f"checkpoints/unet_epoch{epoch+1}.pth")
+        if avg_val_loss < best_loss:
+            best_loss = avg_val_loss
+            torch.save({
+                'epoch': epoch,
+                'model_state_dict': model.state_dict(),
+                'optimizer_state_dict': optimizer.state_dict()
+            }, f"checkpoints/unet_epoch{epoch+1}.pth")
             print("Model saved.")
 
 
