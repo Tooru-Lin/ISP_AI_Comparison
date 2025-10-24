@@ -121,8 +121,12 @@ private:
 
 int main() {
 
-    std::string path = "C:/Users/eevo1/OneDrive/Desktop/ISP_AI_Comparison/data/raw/Sony/Sony/long/00001_00_10s.ARW";
+    std::string path = "C:/Users/eevo1/OneDrive/Desktop/ISP_AI_Comparison/data/raw/Sony/Sony/short/00001_00_0.04s.ARW";
+    //std::string path = "C:/Users/eevo1/OneDrive/Desktop/ISP_AI_Comparison/data/raw/Sony/Sony/long/00001_00_10s.ARW";
 
+    
+    // cv::Mat raw16 = loadRawWithLibRaw("C:/Users/eevo1/OneDrive/Desktop/ISP_AI_Comparison/data/raw/Fuji/Fuji/long/00001_00_10s.RAF");
+    
     ISP isp; // stack 上創建，呼叫建構子
 
     //int ErrCode = isp.DoPipeline(path);
@@ -134,7 +138,6 @@ int main() {
     std::vector<float> pre_mul;
     cv::Mat cam_xyz, xyz_srgb;
     cv::Mat raw32;
-    // cv::Mat raw16 = loadRawWithLibRaw("C:/Users/eevo1/OneDrive/Desktop/ISP_AI_Comparison/data/raw/Fuji/Fuji/long/00001_00_10s.RAF");
     cv::Mat raw16 = isp.loadRawWithLibRaw(path,
         width,
         height,
@@ -154,7 +157,7 @@ int main() {
 
 
     // 原 raw
-    double scale = 0.3;
+    double scale = 0.5;
     isp.showPreview(raw32, "Origin", scale);
     //cv::imwrite("Test.tiff", raw16);
 
@@ -222,7 +225,21 @@ int main() {
 
         cv::threshold(bgr32, bgr32, 0.0, 0.0, cv::THRESH_TOZERO); // clip <0
         cv::threshold(bgr32, bgr32, 1.0, 1.0, cv::THRESH_TRUNC);  // clip >1
-        isp.showPreview(bgr32, "Demosaic", 0.3);
+
+        cv::Mat flat = bgr32.reshape(1, bgr32.total() * bgr32.channels());
+        std::vector<float> vals;
+        flat.copyTo(vals);
+        std::nth_element(vals.begin(), vals.begin() + vals.size() * 0.99, vals.end());
+        float maxVal = vals[vals.size() * 0.99];
+        cv::Mat bgr32_norm;
+        bgr32.convertTo(bgr32_norm, CV_32F, 1.0 / maxVal);
+
+        cv::threshold(bgr32_norm, bgr32_norm, 0.0, 0.0, cv::THRESH_TOZERO); // clip <0
+        cv::threshold(bgr32_norm, bgr32_norm, 1.0, 1.0, cv::THRESH_TRUNC);  // clip >1
+        isp.showPreview(bgr32_norm, "Demosaic_norm", scale);
+
+
+        isp.showPreview(bgr32, "Demosaic", scale);
     }
 
     //......................................................................................................//
@@ -634,13 +651,15 @@ void ISP::showPreview(const cv::Mat& img, const std::string& title, double scale
         throw std::runtime_error("Unsupported image depth!");
     }
 
+
+    
+
     // resize if needed
     if (scale != 1.0) {
         cv::Mat temp;
         cv::resize(preview8, temp, cv::Size(), scale, scale, cv::INTER_AREA);
         preview8 = temp;
     }
-
     cv::imwrite(std::to_string(ImgCount++) + "_" + title + ".tiff", preview8);
     cv::imshow(title, preview8);
     cv::waitKey(0);

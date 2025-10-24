@@ -1,3 +1,4 @@
+
 import torch
 import torch.nn as nn
 import torch.optim as optim
@@ -5,6 +6,7 @@ from tqdm import tqdm
 import os
 import sys
 import time
+import numpy as np
 from torch.utils.data import DataLoader, Dataset
 from torchvision import transforms
 from torch.utils.tensorboard import SummaryWriter
@@ -12,6 +14,8 @@ from torch.utils.tensorboard import SummaryWriter
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 from isp_ai.unet import UNet
 from data.PreprocessedCropDataset import PreprocessedCropDataset
+from data.BayerDataset import BayerDataset
+from common.common_func import *
 
 def main():
     # # 1️⃣ Dataset
@@ -113,4 +117,65 @@ def main():
 
 
 if __name__ == "__main__":
+
+
+    # --- 1. 設定路徑 ---
+    ckpt_path = "checkpoints/unet_epoch205.pth"
+    # input_path = "data/raw/Sony/Sony/short/00001_00_0.1s.ARW"
+    save_path = "data/sample_output.tiff"
+
+    # --- 2. 建立模型 ---
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    model = UNet().to(device)
+
+    # --- 3. 載入訓練權重 ---
+    ckpt = torch.load(ckpt_path, map_location=device)
+    model.load_state_dict(ckpt["model_state_dict"])
+    model.eval()
+
+    # --- 4. 讀取並預處理輸入圖 ---
+    # 假設你是輸入 Bayer pattern (4 channel)
+
+    txt_path = "C:/Users/eevo1/OneDrive/Desktop/ISP_AI_Comparison/data/raw/Sony/Sony_train_list.txt"
+    with open(txt_path, "r", encoding="utf-8") as f:
+        lines = f.readlines()
+
+
+    for line in tqdm(lines):
+        parts = line.strip().split()
+        if len(parts) < 2:
+            continue
+
+        short_path = os.path.join("./data/raw/Sony", parts[0])
+        short_img = BayerDataset.process_raw(short_path)
+
+        show_image(short_img)
+
+        short_img = np.transpose(short_img, (2, 0, 1))
+        img = torch.from_numpy(short_img).unsqueeze(0).float().to(device)
+
+        # --- 5. 推論 ---
+        with torch.no_grad():
+            output = model(img)  # [1, 3, H, W]
+
+        # 轉成 numpy 並調整維度
+        output_img = output.squeeze(0).permute(1, 2, 0).cpu().numpy()  # [H, W, 3]
+
+
+        
+        # --- 6. 後處理與儲存 ---
+        output = output.squeeze(0).cpu().clamp(0, 1)
+
+        # 轉為 PIL 圖片並儲存
+        output_img = transforms.ToPILImage()(output)
+        show_image(output_img, None)
+        output_img.save(save_path)
+
+
+        
+
+    
+
+
+
     main()
