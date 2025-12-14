@@ -1,18 +1,14 @@
 # 專案名稱
+ISP_AI_Comparison
 
-## 📖 專案介紹
-簡單描述這個專案的目的與功能。
+---
 
-## ⚙️ 安裝與使用
-```bash
-# 克隆專案
-git clone https://github.com/your-username/your-repo.git
+## 📌 開發環境
+- 作業系統：Windows
+- 程式語言：C++, C#, python 
 
-# 進入資料夾
-cd your-repo
+---
 
-# (如果需要) 安裝依賴
-# e.g. dotnet restore / pip install -r requirements.txt
-
-# 執行
-# e.g. dotnet run / python main.py
+## 🗂 版本更新紀錄
+| 版號 | 更新內容 | 日期 |
+| v0.0.1.1214 | 1.初始版本 | 2025/12/14 |

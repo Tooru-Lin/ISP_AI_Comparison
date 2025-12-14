@@ -1,0 +1,107 @@
+﻿#pragma once
+#include <opencv2/opencv.hpp>
+#include <unordered_map>
+#include <string>
+#include <vector>
+#include <stdexcept>
+
+class ISP
+{
+public:
+    // Enum 定義
+    enum class AWB_Method { Default = 1, GrayWorld = 2, WhitePoint = 3 };
+    enum class Demosaic_Method { CCM = 1, AI = 2 };
+
+    // Constructor
+    ISP() {
+        // ----------------- Bool 參數 map -----------------
+        // map 直接存值，不用 reference
+        bool_params["DoWhiteBlackLevel"] = true;  // 是否執行黑白電平校正
+        bool_params["DoAWB"] = true;             // 是否執行白平衡
+        bool_params["DoDemosaic"] = true;        // 是否執行 demosaic
+        bool_params["DoCCM"] = false;             // 是否執行色彩校正(CCM)
+        bool_params["DoGamma"] = true;           // 是否執行 Gamma 校正
+        bool_params["DoSharpen"] = true;         // 是否執行銳化
+
+        // ----------------- Enum 參數 map -----------------
+        enumAWB_params["AWB_Method"] = AWB_Method::Default;       // 預設 AWB 方法
+        enumDemosaic_params["Demosaic_Method"] = Demosaic_Method::CCM; // 預設 demosaic 方法
+    }
+
+    // ----------------- Bool 參數操作 -----------------
+    void setParamBool(const std::string& key, bool value) {
+        if (bool_params.count(key))
+            bool_params[key] = value;
+        else throw std::invalid_argument("Invalid bool key");
+    }
+
+    bool getParamBool(const std::string& key) const {
+        if (bool_params.count(key))
+            return bool_params.at(key);
+        else throw std::invalid_argument("Invalid bool key");
+    }
+
+    // ----------------- Enum 參數操作 -----------------
+    void setParamAWB(AWB_Method value) { enumAWB_params["AWB_Method"] = value; }
+    void setParamDemosaic(Demosaic_Method value) { enumDemosaic_params["Demosaic_Method"] = value; }
+
+    AWB_Method getParamAWB() const { return enumAWB_params.at("AWB_Method"); }
+    Demosaic_Method getParamDemosaic() const { return enumDemosaic_params.at("Demosaic_Method"); }
+
+    // ----------------- 影像處理函數 -----------------
+    cv::Mat loadRawWithLibRaw(
+        const std::string& filename,
+        int& Width,
+        int& Height,
+        int& black,        // 輸出黑階
+        int& white,        // 輸出白階
+        std::vector<float>& cam_mul,  // AWB before demosaic
+        std::vector<float>& pre_mul,  // AWB after demosaic
+        cv::Mat& cam_xyz,             // 輸出 3x3 相機→XYZ 矩陣
+        cv::Mat& xyz_srgb);
+
+    // 黑電平校正
+    void blackLevelCorrection(cv::Mat& raw, float black_level);
+
+    // 白電平校正（normalize）
+    void whiteLevelNormalization(cv::Mat& raw, float white_level);
+
+    // Bayer去馬賽克
+    cv::Mat demosaic(const cv::Mat& raw);
+
+    // 色彩校正（CCM）
+    cv::Mat colorCorrection(const cv::Mat& img, const cv::Mat& ccm);
+
+    // 套用 pre_mul 白平衡係數
+    void applyPreMul(cv::Mat& img, const std::vector<float> pre_mul);
+
+    // 白平衡（依增益調整RGB通道）
+    void CalAWBGain_GrayWorld(const cv::Mat& img, double& gain_R, double& gain_G, double& gain_B);
+
+    // 白平衡 (亮點做白平衡)
+    void CalAWBGain_WhitePatch(const cv::Mat& img, double& gain_R, double& gain_G, double& gain_B);
+
+    // 白平衡 (亮點做白平衡)
+    void ApplyAWBGain(cv::Mat& img, int height, int width, double gainR, double gainG, double gainB);
+
+    // 色調映射與Gamma校正
+    void applyToneMapping(cv::Mat& img, float gamma = 1);
+
+    // 銳化
+    void sharpening(cv::Mat& img, double Sharpening_Level = 0);
+
+    // 壓縮與輸出
+    void showPreview(const cv::Mat& img, const std::string& title, double scale = 1.0, bool autoContrast = true);
+
+    
+
+private:
+    int ImgCount = 1;
+
+    // ----------------- Bool 參數 -----------------
+    std::unordered_map<std::string, bool> bool_params;
+
+    // ----------------- Enum 參數 -----------------
+    std::unordered_map<std::string, AWB_Method> enumAWB_params;
+    std::unordered_map<std::string, Demosaic_Method> enumDemosaic_params;
+};

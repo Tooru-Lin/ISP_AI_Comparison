@@ -3,7 +3,7 @@ using System.Windows.Forms;
 
 namespace ISP_Comparision
 {
-    partial class Form1
+    partial class DemoForm
     {
         private System.ComponentModel.IContainer components = null;
         private GroupBox gbPipeline1;
@@ -280,10 +280,7 @@ namespace ISP_Comparision
             // 
             this.cbLinearity1.DropDownStyle = System.Windows.Forms.ComboBoxStyle.DropDownList;
             this.cbLinearity1.Items.AddRange(new object[] {
-            "None",
-            "Default",
-            "Aggressive",
-            "Conservative"});
+            "None"});
             this.cbLinearity1.Location = new System.Drawing.Point(130, 104);
             this.cbLinearity1.Name = "cbLinearity1";
             this.cbLinearity1.Size = new System.Drawing.Size(200, 20);
@@ -909,7 +906,7 @@ namespace ISP_Comparision
             this.lblSource.TabIndex = 0;
             this.lblSource.Text = "Source Image:";
             // 
-            // Form1
+            // DemoForm
             // 
             this.ClientSize = new System.Drawing.Size(1609, 881);
             this.Controls.Add(this.lblSource);
@@ -921,7 +918,7 @@ namespace ISP_Comparision
             this.Controls.Add(this.pbDisplay2);
             this.Controls.Add(this.panelMetrics1);
             this.Controls.Add(this.panelMetrics2);
-            this.Name = "Form1";
+            this.Name = "DemoForm";
             this.Text = "ISP Comparison";
             this.gbPipeline1.ResumeLayout(false);
             this.gbPipeline2.ResumeLayout(false);
