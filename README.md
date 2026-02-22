@@ -11,5 +11,6 @@ ISP_AI_Comparison
 
 ## 🗂 版本更新紀錄
 | 版號 | 更新內容 | 日期 |
-| v0.0.2.0222 | 1.將Traditional Algo 包成 DLL。</br> 2.將 Traditional Algo 的 DLL 初步整合至 UI 並測試。 | 2026/02/22 |
-| v0.0.1.1214 | 1.初始版本 | 2025/12/14 |
+|:--------|:------------|------:|
+| v0.0.2.0222 | 1. 將 Traditional Algo 包成 DLL。<br>2. 將 Traditional Algo DLL 初步整合至 UI 並測試。 | 2026/02/22 |
+| v0.0.1.1214 | 1. 初始版本。 | 2025/12/14 |
