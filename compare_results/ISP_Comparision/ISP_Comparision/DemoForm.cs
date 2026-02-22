@@ -1,4 +1,5 @@
-﻿using System;
+﻿using ISP_CSharp;
+using System;
 using System.Collections.Generic;
 using System.Drawing;
 using System.Drawing.Imaging;
@@ -11,6 +12,7 @@ namespace ISP_Comparision
     public partial class DemoForm : Form
     {
         private Bitmap originalImage;
+        private string originalImagePath;
         private ISP_Pipeline isp1;
         private ISP_Pipeline isp2;
         private System.Windows.Forms.Timer liveTimer1;
@@ -123,7 +125,7 @@ namespace ISP_Comparision
         {
             using (var ofd = new OpenFileDialog())
             {
-                ofd.Filter = "Images|*.png;*.jpg;*.jpeg;*.bmp";
+                ofd.Filter = "Images|*.png;*.jpg;*.jpeg;*.bmp;*.RAF;*.ARW";
                 if (ofd.ShowDialog() != DialogResult.OK) return;
                 txtSourcePath.Text = ofd.FileName;
                 LoadSourceImage(ofd.FileName);
@@ -136,13 +138,12 @@ namespace ISP_Comparision
             if (string.IsNullOrWhiteSpace(path) || !File.Exists(path)) return;
             try
             {
+                // 不再使用 Image.FromFile，也不在此處載入整張影像到記憶體
                 originalImage?.Dispose();
-                // load as Bitmap and keep a copy
-                using (var tmp = Image.FromFile(path))
-                {
-                    originalImage = new Bitmap(tmp);
-                }
+                originalImage = null;
+                originalImagePath = path;
 
+                // 清掉顯示區塊（後續處理會按需載入 short-lived bitmap）
                 pbDisplay1.Image?.Dispose();
                 pbDisplay1.Image = null;
                 pbDisplay2.Image?.Dispose();
@@ -150,28 +151,199 @@ namespace ISP_Comparision
             }
             catch (Exception ex)
             {
-                MessageBox.Show("Failed to load image: " + ex.Message);
+                MessageBox.Show("Failed to set source path: " + ex.Message);
+            }
+        }
+
+        // 以 FileStream + Image.FromStream 的方式載入 bitmap 的複本，使用者須在使用完後 Dispose 回傳的 Bitmap
+        private Bitmap LoadBitmapFromFile(string path)
+        {
+            if (string.IsNullOrWhiteSpace(path) || !File.Exists(path)) return null;
+            // 打開檔案，從 stream 建立 Image，再複製為新的 Bitmap，確保不鎖定原始檔案
+            using (var fs = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read))
+            {
+                using (var img = Image.FromStream(fs))
+                {
+                    return new Bitmap(img);
+                }
             }
         }
 
         private void BtnMeasure1_Click(object sender, EventArgs e)
         {
             if (!EnsureImageLoaded()) return;
-            var out1 = isp1.Process(originalImage);
-            pbDisplay1.Image?.Dispose();
-            pbDisplay1.Image = (Bitmap)out1.Clone();
-            var metrics = ComputeMetrics(originalImage, out1);
-            lblMetrics1.Text = FormatMetrics(metrics);
+
+            try
+            {
+                NativeDiagnostics.DiagnoseIspDll(Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "isp_traditional.dll"));
+
+                // ========================================
+                // 1. 創建 ISP 處理器
+                // ========================================
+                Console.WriteLine("Creating ISP processor...");
+                using (var isp = new ISP_Processor())
+                {
+                    // ========================================
+                    // 2. 設定參數
+                    // ========================================
+                    Console.WriteLine("Setting parameters...");
+
+                    // ========================================
+                    // 3. 加載 RAW 檔案
+                    // ========================================
+                    string rawPath = originalImagePath;
+                    if (!File.Exists(rawPath))
+                    {
+                        Console.WriteLine($"File not found: {rawPath}");
+                        return;
+                    }
+
+                    Console.WriteLine($"Loading RAW file: {rawPath}");
+                    ISP_ErrCode ec = isp.LoadRawWithLibRaw(
+                        rawPath,
+                        out int width,
+                        out int height,
+                        out int black,
+                        out int white,
+                        out float[] cam_mul,
+                        out float[] pre_mul,
+                        out ISP_Mat cam_xyz,
+                        out ISP_Mat xyz_srgb,
+                        out ISP_Mat raw32);
+
+                    if (ec != ISP_ErrCode.Ok)
+                    {
+                        Console.WriteLine($"Failed to load RAW file: {ec}");
+                        return;
+                    }
+
+                    Console.WriteLine($"Image loaded: {width}x{height}");
+                    Console.WriteLine($"Black level: {black}, White level: {white}");
+                    Console.WriteLine($"cam_mul: [{cam_mul[0]}, {cam_mul[1]}, {cam_mul[2]}, {cam_mul[3]}]");
+
+                    // ========================================
+                    // 4. 黑白電平校正
+                    // ========================================
+                    Console.WriteLine("Applying black/white level correction...");
+                    ec = isp.BlackAndWhiteLevelCorrection(ref raw32, black, white);
+                    if (ec != ISP_ErrCode.Ok)
+                    {
+                        Console.WriteLine($"Black/white correction failed: {ec}");
+                        return;
+                    }
+
+                    // ========================================
+                    // 5. 白平衡
+                    // ========================================
+                    Console.WriteLine("Applying AWB...");
+
+                    // 計算增益 (簡化版本，實際應根據選擇的方法)
+                    double gainR = cam_mul[0] / cam_mul[1];
+                    double gainG = 1.0;
+                    double gainB = cam_mul[2] / cam_mul[1];
+
+                    ec = isp.ApplyAWBGain(ref raw32, height, width, gainR, gainG, gainB);
+                    if (ec != ISP_ErrCode.Ok)
+                    {
+                        Console.WriteLine($"AWB failed: {ec}");
+                        return;
+                    }
+
+                    // ========================================
+                    // 6. Demosaic
+                    // ========================================
+                    Console.WriteLine("Applying demosaic...");
+                    ec = isp.Demosaic(ref raw32, out ISP_Mat bgr32);
+                    if (ec != ISP_ErrCode.Ok)
+                    {
+                        Console.WriteLine($"Demosaic failed: {ec}");
+                        return;
+                    }
+
+                    Console.WriteLine($"Demosaiced: {bgr32.cols}x{bgr32.rows}, channels: {bgr32.channels}");
+
+                    // ========================================
+                    // 7. 色彩校正
+                    // ========================================
+                    // 計算 CCM = xyz_srgb * cam_xyz
+                    ISP_ErrCode ccmEc = isp.CalculateCCM(ref xyz_srgb, ref cam_xyz, out ISP_Mat ccm);
+                    if (ccmEc != ISP_ErrCode.Ok)
+                    {
+                        Console.WriteLine($"CCM calculation failed: {ccmEc}");
+                        return;
+                    }
+
+                    Console.WriteLine("Applying color correction...");
+                    ISP_ErrCode colorEc = isp.ColorCorrection(ref bgr32, ref ccm, out ISP_Mat bgr32_cc);
+                    if (colorEc != ISP_ErrCode.Ok)
+                    {
+                        Console.WriteLine($"Color correction failed: {colorEc}");
+                        return;
+                    }
+
+
+                    // ========================================
+                    // 8. 色調映射
+                    // ========================================
+                    Console.WriteLine("Applying tone mapping...");
+                    ec = isp.ApplyToneMapping(ref bgr32_cc, 1.8f);
+                    if (ec != ISP_ErrCode.Ok)
+                    {
+                        Console.WriteLine($"Tone mapping failed: {ec}");
+                        return;
+                    }
+
+                    // ========================================
+                    // 9. 銳化
+                    // ========================================
+                    Console.WriteLine("Applying sharpening...");
+                    ec = isp.Sharpening(ref bgr32_cc, 0.5);
+                    if (ec != ISP_ErrCode.Ok)
+                    {
+                        Console.WriteLine($"Sharpening failed: {ec}");
+                        return;
+                    }
+
+                    // ========================================
+                    // 10. 預覽
+                    // ========================================
+                    Console.WriteLine("Showing preview...");
+
+                    pbDisplay1.Image = Analysis.ToBitmap(bgr32);
+                    Console.WriteLine("Processing completed successfully!");
+                }
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Error: {ex.Message}");
+                Console.WriteLine($"StackTrace: {ex.StackTrace}");
+            }
         }
 
         private void BtnMeasure2_Click(object sender, EventArgs e)
         {
             if (!EnsureImageLoaded()) return;
-            var out2 = isp2.Process(originalImage);
-            pbDisplay2.Image?.Dispose();
-            pbDisplay2.Image = (Bitmap)out2.Clone();
-            var metrics = ComputeMetrics(originalImage, out2);
-            lblMetrics2.Text = FormatMetrics(metrics);
+
+            Bitmap src = null;
+            Bitmap outBmp = null;
+            try
+            {
+                src = LoadBitmapFromFile(originalImagePath);
+                if (src == null) return;
+
+                outBmp = isp2.Process(src);
+
+                pbDisplay2.Image?.Dispose();
+                pbDisplay2.Image = (Bitmap)outBmp.Clone();
+
+                var metrics = ComputeMetrics(src, outBmp);
+                lblMetrics2.Text = FormatMetrics(metrics);
+            }
+            finally
+            {
+                outBmp?.Dispose();
+                src?.Dispose();
+            }
         }
 
         private void BtnLive1_Click(object sender, EventArgs e)
@@ -190,49 +362,79 @@ namespace ISP_Comparision
 
         private void LiveTick(int pipelineIndex)
         {
-            if (originalImage == null) return;
+            // 使用短暫載入，不保留在記憶體中
+            if (string.IsNullOrWhiteSpace(originalImagePath) || !File.Exists(originalImagePath)) return;
+
             if (pipelineIndex == 1)
             {
-                var out1 = isp1.Process(originalImage);
-                this.Invoke(new Action(() =>
+                Bitmap src = null;
+                Bitmap outBmp = null;
+                try
                 {
-                    pbDisplay1.Image?.Dispose();
-                    pbDisplay1.Image = (Bitmap)out1.Clone();
-                    var metrics = ComputeMetrics(originalImage, out1);
-                    lblMetrics1.Text = FormatMetrics(metrics);
-                }));
+                    src = LoadBitmapFromFile(originalImagePath);
+                    if (src == null) return;
+
+                    outBmp = isp1.Process(src);
+                    this.Invoke(new Action(() =>
+                    {
+                        pbDisplay1.Image?.Dispose();
+                        pbDisplay1.Image = (Bitmap)outBmp.Clone();
+                        var metrics = ComputeMetrics(src, outBmp);
+                        lblMetrics1.Text = FormatMetrics(metrics);
+                    }));
+                }
+                finally
+                {
+                    outBmp?.Dispose();
+                    src?.Dispose();
+                }
             }
             else
             {
-                var out2 = isp2.Process(originalImage);
-                this.Invoke(new Action(() =>
+                Bitmap src = null;
+                Bitmap outBmp = null;
+                try
                 {
-                    pbDisplay2.Image?.Dispose();
-                    pbDisplay2.Image = (Bitmap)out2.Clone();
-                    var metrics = ComputeMetrics(originalImage, out2);
-                    lblMetrics2.Text = FormatMetrics(metrics);
-                }));
+                    src = LoadBitmapFromFile(originalImagePath);
+                    if (src == null) return;
+
+                    outBmp = isp2.Process(src);
+                    this.Invoke(new Action(() =>
+                    {
+                        pbDisplay2.Image?.Dispose();
+                        pbDisplay2.Image = (Bitmap)outBmp.Clone();
+                        var metrics = ComputeMetrics(src, outBmp);
+                        lblMetrics2.Text = FormatMetrics(metrics);
+                    }));
+                }
+                finally
+                {
+                    outBmp?.Dispose();
+                    src?.Dispose();
+                }
             }
         }
 
         private bool EnsureImageLoaded()
         {
-            if (originalImage != null) return true;
-            // try from txtSourcePath first
+            // 如果已經有路徑且檔案存在就回傳 true（LoadSourceImage 只會儲存 path）
+            if (!string.IsNullOrWhiteSpace(originalImagePath) && File.Exists(originalImagePath)) return true;
+
+            // 嘗試從 txtSourcePath 指定的檔案
             if (!string.IsNullOrWhiteSpace(txtSourcePath.Text) && File.Exists(txtSourcePath.Text))
             {
-                LoadSourceImage(txtSourcePath.Text);
-                return originalImage != null;
+                originalImagePath = txtSourcePath.Text;
+                return true;
             }
 
             using (var ofd = new OpenFileDialog())
             {
-                ofd.Filter = "Images|*.png;*.jpg;*.jpeg;*.bmp";
+                ofd.Filter = "Images|*.png;*.jpg;*.jpeg;*.bmp;*.RAF;*.ARW";
                 if (ofd.ShowDialog() != DialogResult.OK) return false;
                 txtSourcePath.Text = ofd.FileName;
-                LoadSourceImage(ofd.FileName);
+                originalImagePath = ofd.FileName;
             }
-            return originalImage != null;
+            return !string.IsNullOrWhiteSpace(originalImagePath) && File.Exists(originalImagePath);
         }
 
         private string FormatMetrics(ImageMetrics m)
