@@ -223,13 +223,12 @@ namespace ISP_Comparision
             this.cbBWLevel1.Font = new System.Drawing.Font("微軟正黑體", 12F, System.Drawing.FontStyle.Regular, System.Drawing.GraphicsUnit.Point, ((byte)(136)));
             this.cbBWLevel1.Items.AddRange(new object[] {
             "None",
-            "Default",
-            "Aggressive",
-            "Conservative"});
+            "Default"});
             this.cbBWLevel1.Location = new System.Drawing.Point(250, 20);
             this.cbBWLevel1.Name = "cbBWLevel1";
             this.cbBWLevel1.Size = new System.Drawing.Size(200, 28);
             this.cbBWLevel1.TabIndex = 1;
+            this.cbBWLevel1.SelectedIndexChanged += new System.EventHandler(this.cbBWLevel1_SelectedIndexChanged);
             // 
             // lblLensShading1
             // 
@@ -248,9 +247,7 @@ namespace ISP_Comparision
             this.cbLensShading1.Font = new System.Drawing.Font("微軟正黑體", 12F, System.Drawing.FontStyle.Regular, System.Drawing.GraphicsUnit.Point, ((byte)(136)));
             this.cbLensShading1.Items.AddRange(new object[] {
             "None",
-            "Default",
-            "Aggressive",
-            "Conservative"});
+            "Default"});
             this.cbLensShading1.Location = new System.Drawing.Point(250, 54);
             this.cbLensShading1.Name = "cbLensShading1";
             this.cbLensShading1.Size = new System.Drawing.Size(200, 28);
@@ -273,9 +270,7 @@ namespace ISP_Comparision
             this.cbBadPixel1.Font = new System.Drawing.Font("微軟正黑體", 12F, System.Drawing.FontStyle.Regular, System.Drawing.GraphicsUnit.Point, ((byte)(136)));
             this.cbBadPixel1.Items.AddRange(new object[] {
             "None",
-            "Default",
-            "Aggressive",
-            "Conservative"});
+            "Default"});
             this.cbBadPixel1.Location = new System.Drawing.Point(250, 88);
             this.cbBadPixel1.Name = "cbBadPixel1";
             this.cbBadPixel1.Size = new System.Drawing.Size(200, 28);
@@ -297,11 +292,13 @@ namespace ISP_Comparision
             this.cbLinearity1.DropDownStyle = System.Windows.Forms.ComboBoxStyle.DropDownList;
             this.cbLinearity1.Font = new System.Drawing.Font("微軟正黑體", 12F, System.Drawing.FontStyle.Regular, System.Drawing.GraphicsUnit.Point, ((byte)(136)));
             this.cbLinearity1.Items.AddRange(new object[] {
-            "None"});
+            "None",
+            "Default"});
             this.cbLinearity1.Location = new System.Drawing.Point(250, 122);
             this.cbLinearity1.Name = "cbLinearity1";
             this.cbLinearity1.Size = new System.Drawing.Size(200, 28);
             this.cbLinearity1.TabIndex = 7;
+            this.cbLinearity1.SelectedIndexChanged += new System.EventHandler(this.cbLinearity1_SelectedIndexChanged);
             // 
             // lblDemosaic1
             // 
@@ -330,9 +327,7 @@ namespace ISP_Comparision
             this.cbDemosaic1.Font = new System.Drawing.Font("微軟正黑體", 12F, System.Drawing.FontStyle.Regular, System.Drawing.GraphicsUnit.Point, ((byte)(136)));
             this.cbDemosaic1.Items.AddRange(new object[] {
             "None",
-            "Default",
-            "Aggressive",
-            "Conservative"});
+            "Default"});
             this.cbDemosaic1.Location = new System.Drawing.Point(250, 156);
             this.cbDemosaic1.Name = "cbDemosaic1";
             this.cbDemosaic1.Size = new System.Drawing.Size(200, 28);
@@ -355,9 +350,7 @@ namespace ISP_Comparision
             this.cbAWB1.Font = new System.Drawing.Font("微軟正黑體", 12F, System.Drawing.FontStyle.Regular, System.Drawing.GraphicsUnit.Point, ((byte)(136)));
             this.cbAWB1.Items.AddRange(new object[] {
             "None",
-            "Default",
-            "Aggressive",
-            "Conservative"});
+            "Default"});
             this.cbAWB1.Location = new System.Drawing.Point(250, 190);
             this.cbAWB1.Name = "cbAWB1";
             this.cbAWB1.Size = new System.Drawing.Size(200, 28);
@@ -380,9 +373,7 @@ namespace ISP_Comparision
             this.cbCCM1.Font = new System.Drawing.Font("微軟正黑體", 12F, System.Drawing.FontStyle.Regular, System.Drawing.GraphicsUnit.Point, ((byte)(136)));
             this.cbCCM1.Items.AddRange(new object[] {
             "None",
-            "Default",
-            "Aggressive",
-            "Conservative"});
+            "Default"});
             this.cbCCM1.Location = new System.Drawing.Point(250, 224);
             this.cbCCM1.Name = "cbCCM1";
             this.cbCCM1.Size = new System.Drawing.Size(200, 28);
@@ -405,9 +396,7 @@ namespace ISP_Comparision
             this.cbNoise1.Font = new System.Drawing.Font("微軟正黑體", 12F, System.Drawing.FontStyle.Regular, System.Drawing.GraphicsUnit.Point, ((byte)(136)));
             this.cbNoise1.Items.AddRange(new object[] {
             "None",
-            "Default",
-            "Aggressive",
-            "Conservative"});
+            "Default"});
             this.cbNoise1.Location = new System.Drawing.Point(250, 258);
             this.cbNoise1.Name = "cbNoise1";
             this.cbNoise1.Size = new System.Drawing.Size(200, 28);
@@ -430,13 +419,12 @@ namespace ISP_Comparision
             this.cbTone1.Font = new System.Drawing.Font("微軟正黑體", 12F, System.Drawing.FontStyle.Regular, System.Drawing.GraphicsUnit.Point, ((byte)(136)));
             this.cbTone1.Items.AddRange(new object[] {
             "None",
-            "Default",
-            "Aggressive",
-            "Conservative"});
+            "Default"});
             this.cbTone1.Location = new System.Drawing.Point(250, 292);
             this.cbTone1.Name = "cbTone1";
             this.cbTone1.Size = new System.Drawing.Size(200, 28);
             this.cbTone1.TabIndex = 17;
+            this.cbTone1.SelectedIndexChanged += new System.EventHandler(this.cbTone1_SelectedIndexChanged);
             // 
             // cbDistort1
             // 
@@ -444,9 +432,7 @@ namespace ISP_Comparision
             this.cbDistort1.Font = new System.Drawing.Font("微軟正黑體", 12F, System.Drawing.FontStyle.Regular, System.Drawing.GraphicsUnit.Point, ((byte)(136)));
             this.cbDistort1.Items.AddRange(new object[] {
             "None",
-            "Default",
-            "Aggressive",
-            "Conservative"});
+            "Default"});
             this.cbDistort1.Location = new System.Drawing.Point(250, 326);
             this.cbDistort1.Name = "cbDistort1";
             this.cbDistort1.Size = new System.Drawing.Size(200, 28);
@@ -469,9 +455,7 @@ namespace ISP_Comparision
             this.cbSharpen1.Font = new System.Drawing.Font("微軟正黑體", 12F, System.Drawing.FontStyle.Regular, System.Drawing.GraphicsUnit.Point, ((byte)(136)));
             this.cbSharpen1.Items.AddRange(new object[] {
             "None",
-            "Default",
-            "Aggressive",
-            "Conservative"});
+            "Default"});
             this.cbSharpen1.Location = new System.Drawing.Point(250, 360);
             this.cbSharpen1.Name = "cbSharpen1";
             this.cbSharpen1.Size = new System.Drawing.Size(200, 28);
@@ -558,9 +542,7 @@ namespace ISP_Comparision
             this.cbBWLevel2.ItemHeight = 20;
             this.cbBWLevel2.Items.AddRange(new object[] {
             "None",
-            "Default",
-            "Aggressive",
-            "Conservative"});
+            "Default"});
             this.cbBWLevel2.Location = new System.Drawing.Point(250, 20);
             this.cbBWLevel2.Name = "cbBWLevel2";
             this.cbBWLevel2.Size = new System.Drawing.Size(200, 28);
@@ -584,9 +566,7 @@ namespace ISP_Comparision
             this.cbLensShading2.ItemHeight = 20;
             this.cbLensShading2.Items.AddRange(new object[] {
             "None",
-            "Default",
-            "Aggressive",
-            "Conservative"});
+            "Default"});
             this.cbLensShading2.Location = new System.Drawing.Point(250, 54);
             this.cbLensShading2.Name = "cbLensShading2";
             this.cbLensShading2.Size = new System.Drawing.Size(200, 28);
@@ -610,9 +590,7 @@ namespace ISP_Comparision
             this.cbBadPixel2.ItemHeight = 20;
             this.cbBadPixel2.Items.AddRange(new object[] {
             "None",
-            "Default",
-            "Aggressive",
-            "Conservative"});
+            "Default"});
             this.cbBadPixel2.Location = new System.Drawing.Point(250, 88);
             this.cbBadPixel2.Name = "cbBadPixel2";
             this.cbBadPixel2.Size = new System.Drawing.Size(200, 28);
@@ -636,9 +614,7 @@ namespace ISP_Comparision
             this.cbLinearity2.ItemHeight = 20;
             this.cbLinearity2.Items.AddRange(new object[] {
             "None",
-            "Default",
-            "Aggressive",
-            "Conservative"});
+            "Default"});
             this.cbLinearity2.Location = new System.Drawing.Point(250, 122);
             this.cbLinearity2.Name = "cbLinearity2";
             this.cbLinearity2.Size = new System.Drawing.Size(200, 28);
@@ -662,9 +638,7 @@ namespace ISP_Comparision
             this.cbDemosaic2.ItemHeight = 20;
             this.cbDemosaic2.Items.AddRange(new object[] {
             "None",
-            "Default",
-            "Aggressive",
-            "Conservative"});
+            "Default"});
             this.cbDemosaic2.Location = new System.Drawing.Point(250, 156);
             this.cbDemosaic2.Name = "cbDemosaic2";
             this.cbDemosaic2.Size = new System.Drawing.Size(200, 28);
@@ -688,9 +662,7 @@ namespace ISP_Comparision
             this.cbAWB2.ItemHeight = 20;
             this.cbAWB2.Items.AddRange(new object[] {
             "None",
-            "Default",
-            "Aggressive",
-            "Conservative"});
+            "Default"});
             this.cbAWB2.Location = new System.Drawing.Point(250, 190);
             this.cbAWB2.Name = "cbAWB2";
             this.cbAWB2.Size = new System.Drawing.Size(200, 28);
@@ -714,9 +686,7 @@ namespace ISP_Comparision
             this.cbCCM2.ItemHeight = 20;
             this.cbCCM2.Items.AddRange(new object[] {
             "None",
-            "Default",
-            "Aggressive",
-            "Conservative"});
+            "Default"});
             this.cbCCM2.Location = new System.Drawing.Point(250, 224);
             this.cbCCM2.Name = "cbCCM2";
             this.cbCCM2.Size = new System.Drawing.Size(200, 28);
@@ -740,9 +710,7 @@ namespace ISP_Comparision
             this.cbNoise2.ItemHeight = 20;
             this.cbNoise2.Items.AddRange(new object[] {
             "None",
-            "Default",
-            "Aggressive",
-            "Conservative"});
+            "Default"});
             this.cbNoise2.Location = new System.Drawing.Point(250, 258);
             this.cbNoise2.Name = "cbNoise2";
             this.cbNoise2.Size = new System.Drawing.Size(200, 28);
@@ -766,9 +734,7 @@ namespace ISP_Comparision
             this.cbTone2.ItemHeight = 20;
             this.cbTone2.Items.AddRange(new object[] {
             "None",
-            "Default",
-            "Aggressive",
-            "Conservative"});
+            "Default"});
             this.cbTone2.Location = new System.Drawing.Point(250, 292);
             this.cbTone2.Name = "cbTone2";
             this.cbTone2.Size = new System.Drawing.Size(200, 28);
@@ -792,9 +758,7 @@ namespace ISP_Comparision
             this.cbDistort2.ItemHeight = 20;
             this.cbDistort2.Items.AddRange(new object[] {
             "None",
-            "Default",
-            "Aggressive",
-            "Conservative"});
+            "Default"});
             this.cbDistort2.Location = new System.Drawing.Point(250, 326);
             this.cbDistort2.Name = "cbDistort2";
             this.cbDistort2.Size = new System.Drawing.Size(200, 28);
@@ -818,9 +782,7 @@ namespace ISP_Comparision
             this.cbSharpen2.ItemHeight = 20;
             this.cbSharpen2.Items.AddRange(new object[] {
             "None",
-            "Default",
-            "Aggressive",
-            "Conservative"});
+            "Default"});
             this.cbSharpen2.Location = new System.Drawing.Point(250, 360);
             this.cbSharpen2.Name = "cbSharpen2";
             this.cbSharpen2.Size = new System.Drawing.Size(200, 28);
@@ -861,7 +823,7 @@ namespace ISP_Comparision
             this.pbDisplay1.BorderStyle = System.Windows.Forms.BorderStyle.FixedSingle;
             this.pbDisplay1.Location = new System.Drawing.Point(474, 68);
             this.pbDisplay1.Name = "pbDisplay1";
-            this.pbDisplay1.Size = new System.Drawing.Size(535, 387);
+            this.pbDisplay1.Size = new System.Drawing.Size(535, 452);
             this.pbDisplay1.SizeMode = System.Windows.Forms.PictureBoxSizeMode.Zoom;
             this.pbDisplay1.TabIndex = 6;
             this.pbDisplay1.TabStop = false;
@@ -871,7 +833,7 @@ namespace ISP_Comparision
             this.pbDisplay2.BorderStyle = System.Windows.Forms.BorderStyle.FixedSingle;
             this.pbDisplay2.Location = new System.Drawing.Point(474, 532);
             this.pbDisplay2.Name = "pbDisplay2";
-            this.pbDisplay2.Size = new System.Drawing.Size(535, 385);
+            this.pbDisplay2.Size = new System.Drawing.Size(535, 450);
             this.pbDisplay2.SizeMode = System.Windows.Forms.PictureBoxSizeMode.Zoom;
             this.pbDisplay2.TabIndex = 7;
             this.pbDisplay2.TabStop = false;

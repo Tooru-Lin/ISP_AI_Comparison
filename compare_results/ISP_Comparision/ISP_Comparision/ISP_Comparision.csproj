@@ -48,12 +48,14 @@
   </ItemGroup>
   <ItemGroup>
     <Compile Include="Analysis.cs" />
+    <Compile Include="Controller.cs" />
     <Compile Include="DemoForm.cs">
       <SubType>Form</SubType>
     </Compile>
     <Compile Include="DemoForm.Designer.cs">
       <DependentUpon>DemoForm.cs</DependentUpon>
     </Compile>
+    <Compile Include="ImageBoxViewer.cs" />
     <Compile Include="ISP_Wrapper.cs" />
     <Compile Include="NativeDiagnostics.cs" />
     <Compile Include="Program.cs" />

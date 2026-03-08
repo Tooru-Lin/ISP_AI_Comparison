@@ -5,6 +5,7 @@ using System.Drawing;
 using System.Drawing.Imaging;
 using System.IO;
 using System.Linq;
+using System.Runtime.InteropServices;
 using System.Windows.Forms;
 
 namespace ISP_Comparision
@@ -15,6 +16,9 @@ namespace ISP_Comparision
         private string originalImagePath;
         private ISP_Pipeline isp1;
         private ISP_Pipeline isp2;
+        private Controller mController;
+        private ImageBoxViewer viewer1;
+        private ImageBoxViewer viewer2;
         private System.Windows.Forms.Timer liveTimer1;
         private System.Windows.Forms.Timer liveTimer2;
 
@@ -26,6 +30,14 @@ namespace ISP_Comparision
             DisableSingleItemComboBoxes();
             InitializePipelines();
             InitializeTimers();
+
+            mController = new Controller();
+
+            // 動態用 enum 填充 ComboBox 項目，並綁定通用 handler
+            PopulateComboBoxesFromEnums();
+
+            viewer1 = ImageBoxViewer.Attach(pbDisplay1);
+            viewer2 = ImageBoxViewer.Attach(pbDisplay2);
         }
 
         // 遞迴檢查所有子控制項，若為 ComboBox 則依 Items 數量處理：
@@ -175,143 +187,18 @@ namespace ISP_Comparision
 
             try
             {
-                NativeDiagnostics.DiagnoseIspDll(Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "isp_traditional.dll"));
+                string rawPath = originalImagePath;
 
-                // ========================================
-                // 1. 創建 ISP 處理器
-                // ========================================
-                Console.WriteLine("Creating ISP processor...");
-                using (var isp = new ISP_Processor())
-                {
-                    // ========================================
-                    // 2. 設定參數
-                    // ========================================
-                    Console.WriteLine("Setting parameters...");
+                mController.Measure(originalImagePath, out ISP_Mat Output_Color, out ISP_Mat Output_Channel);
 
-                    // ========================================
-                    // 3. 加載 RAW 檔案
-                    // ========================================
-                    string rawPath = originalImagePath;
-                    if (!File.Exists(rawPath))
-                    {
-                        Console.WriteLine($"File not found: {rawPath}");
-                        return;
-                    }
+                // 先 dispose/clear 由 viewer 處理
+                if (Output_Color.data != IntPtr.Zero)
+                    viewer1.SetImage(Analysis.ToBitmap(Output_Color));
+                else if (Output_Color.channels == 3)
+                    viewer1.SetImage(ToBitmapSelectChannel(Output_Color, 1, 1.0f));
+                else
+                    viewer1.SetImage(Analysis.ToBitmap(Output_Channel));
 
-                    Console.WriteLine($"Loading RAW file: {rawPath}");
-                    ISP_ErrCode ec = isp.LoadRawWithLibRaw(
-                        rawPath,
-                        out int width,
-                        out int height,
-                        out int black,
-                        out int white,
-                        out float[] cam_mul,
-                        out float[] pre_mul,
-                        out ISP_Mat cam_xyz,
-                        out ISP_Mat xyz_srgb,
-                        out ISP_Mat raw32);
-
-                    if (ec != ISP_ErrCode.Ok)
-                    {
-                        Console.WriteLine($"Failed to load RAW file: {ec}");
-                        return;
-                    }
-
-                    Console.WriteLine($"Image loaded: {width}x{height}");
-                    Console.WriteLine($"Black level: {black}, White level: {white}");
-                    Console.WriteLine($"cam_mul: [{cam_mul[0]}, {cam_mul[1]}, {cam_mul[2]}, {cam_mul[3]}]");
-
-                    // ========================================
-                    // 4. 黑白電平校正
-                    // ========================================
-                    Console.WriteLine("Applying black/white level correction...");
-                    ec = isp.BlackAndWhiteLevelCorrection(ref raw32, black, white);
-                    if (ec != ISP_ErrCode.Ok)
-                    {
-                        Console.WriteLine($"Black/white correction failed: {ec}");
-                        return;
-                    }
-
-                    // ========================================
-                    // 5. 白平衡
-                    // ========================================
-                    Console.WriteLine("Applying AWB...");
-
-                    // 計算增益 (簡化版本，實際應根據選擇的方法)
-                    double gainR = cam_mul[0] / cam_mul[1];
-                    double gainG = 1.0;
-                    double gainB = cam_mul[2] / cam_mul[1];
-
-                    ec = isp.ApplyAWBGain(ref raw32, height, width, gainR, gainG, gainB);
-                    if (ec != ISP_ErrCode.Ok)
-                    {
-                        Console.WriteLine($"AWB failed: {ec}");
-                        return;
-                    }
-
-                    // ========================================
-                    // 6. Demosaic
-                    // ========================================
-                    Console.WriteLine("Applying demosaic...");
-                    ec = isp.Demosaic(ref raw32, out ISP_Mat bgr32);
-                    if (ec != ISP_ErrCode.Ok)
-                    {
-                        Console.WriteLine($"Demosaic failed: {ec}");
-                        return;
-                    }
-
-                    Console.WriteLine($"Demosaiced: {bgr32.cols}x{bgr32.rows}, channels: {bgr32.channels}");
-
-                    // ========================================
-                    // 7. 色彩校正
-                    // ========================================
-                    // 計算 CCM = xyz_srgb * cam_xyz
-                    ISP_ErrCode ccmEc = isp.CalculateCCM(ref xyz_srgb, ref cam_xyz, out ISP_Mat ccm);
-                    if (ccmEc != ISP_ErrCode.Ok)
-                    {
-                        Console.WriteLine($"CCM calculation failed: {ccmEc}");
-                        return;
-                    }
-
-                    Console.WriteLine("Applying color correction...");
-                    ISP_ErrCode colorEc = isp.ColorCorrection(ref bgr32, ref ccm, out ISP_Mat bgr32_cc);
-                    if (colorEc != ISP_ErrCode.Ok)
-                    {
-                        Console.WriteLine($"Color correction failed: {colorEc}");
-                        return;
-                    }
-
-
-                    // ========================================
-                    // 8. 色調映射
-                    // ========================================
-                    Console.WriteLine("Applying tone mapping...");
-                    ec = isp.ApplyToneMapping(ref bgr32_cc, 1.8f);
-                    if (ec != ISP_ErrCode.Ok)
-                    {
-                        Console.WriteLine($"Tone mapping failed: {ec}");
-                        return;
-                    }
-
-                    // ========================================
-                    // 9. 銳化
-                    // ========================================
-                    Console.WriteLine("Applying sharpening...");
-                    ec = isp.Sharpening(ref bgr32_cc, 0.5);
-                    if (ec != ISP_ErrCode.Ok)
-                    {
-                        Console.WriteLine($"Sharpening failed: {ec}");
-                        return;
-                    }
-
-                    // ========================================
-                    // 10. 預覽
-                    // ========================================
-                    Console.WriteLine("Showing preview...");
-
-                    pbDisplay1.Image = Analysis.ToBitmap(bgr32);
-                    Console.WriteLine("Processing completed successfully!");
-                }
             }
             catch (Exception ex)
             {
@@ -324,26 +211,113 @@ namespace ISP_Comparision
         {
             if (!EnsureImageLoaded()) return;
 
-            Bitmap src = null;
-            Bitmap outBmp = null;
             try
             {
-                src = LoadBitmapFromFile(originalImagePath);
-                if (src == null) return;
+                string rawPath = originalImagePath;
 
-                outBmp = isp2.Process(src);
+                mController.Measure(originalImagePath, out ISP_Mat Output_Color, out ISP_Mat Output_Channel);
 
-                pbDisplay2.Image?.Dispose();
-                pbDisplay2.Image = (Bitmap)outBmp.Clone();
+                // 先 dispose/clear 由 viewer 處理
+                if (Output_Color.data != IntPtr.Zero)
+                    viewer2.SetImage(Analysis.ToBitmap(Output_Color));
+                else if (Output_Color.channels == 3)
+                    viewer2.SetImage(ToBitmapSelectChannel(Output_Color, 1, 1.0f));
+                else
+                    viewer2.SetImage(Analysis.ToBitmap(Output_Channel));
 
-                var metrics = ComputeMetrics(src, outBmp);
-                lblMetrics2.Text = FormatMetrics(metrics);
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Error: {ex.Message}");
+                Console.WriteLine($"StackTrace: {ex.StackTrace}");
+            }
+        }
+
+        /// <summary>
+        /// 從多通道 ISP_Mat 中擷取單一 channel 並回傳為 24bpp Bitmap（灰階複製成 RGB）。
+        /// 支援 CV_8U (depth==0) 與 CV_32F (depth==5)；每列使用 mat.step 處理 padding。
+        /// </summary>
+        private Bitmap ToBitmapSelectChannel(ISP_Mat mat, int channelIndex, float floatScale = 1.0f)
+        {
+            if (mat.data == IntPtr.Zero) return null;
+            int rows = mat.rows;
+            int cols = mat.cols;
+            int channels = mat.channels;
+            if (rows <= 0 || cols <= 0) return null;
+            if (channelIndex < 0 || channelIndex >= channels) return null;
+
+            int depth = mat.type & 0x07; // OpenCV style depth
+            PixelFormat pixelFormat = PixelFormat.Format24bppRgb;
+            Bitmap bmp = new Bitmap(cols, rows, pixelFormat);
+            BitmapData bd = bmp.LockBits(new Rectangle(0, 0, cols, rows), ImageLockMode.WriteOnly, pixelFormat);
+
+            try
+            {
+                int bmpStride = Math.Abs(bd.Stride);
+                byte[] dstRow = new byte[bmpStride];
+
+                if (depth == 0) // CV_8U
+                {
+                    int srcRowBytes = cols * channels;
+                    byte[] srcRow = new byte[srcRowBytes];
+                    for (int r = 0; r < rows; r++)
+                    {
+                        IntPtr srcPtr = IntPtr.Add(mat.data, r * mat.step);
+                        Marshal.Copy(srcPtr, srcRow, 0, srcRowBytes);
+
+                        int dstOff = 0;
+                        for (int c = 0; c < cols; c++)
+                        {
+                            byte v = srcRow[c * channels + channelIndex];
+                            // Bitmap expects B,G,R
+                            dstRow[dstOff++] = v;
+                            dstRow[dstOff++] = v;
+                            dstRow[dstOff++] = v;
+                        }
+                        // zero padding if any
+                        for (int i = dstOff; i < dstRow.Length; i++) dstRow[i] = 0;
+                        Marshal.Copy(dstRow, 0, IntPtr.Add(bd.Scan0, r * bd.Stride), dstRow.Length);
+                    }
+                }
+                else if (depth == 5) // CV_32F
+                {
+                    int floatsPerRow = cols * channels;
+                    float[] srcRow = new float[floatsPerRow];
+                    for (int r = 0; r < rows; r++)
+                    {
+                        IntPtr srcPtr = IntPtr.Add(mat.data, r * mat.step);
+                        Marshal.Copy(srcPtr, srcRow, 0, floatsPerRow);
+
+                        int dstOff = 0;
+                        for (int c = 0; c < cols; c++)
+                        {
+                            float fv = srcRow[c * channels + channelIndex] * floatScale;
+                            int iv = (int)Math.Round(fv * 255f);
+                            if (iv < 0) iv = 0;
+                            if (iv > 255) iv = 255;
+                            byte v = (byte)iv;
+                            dstRow[dstOff++] = v;
+                            dstRow[dstOff++] = v;
+                            dstRow[dstOff++] = v;
+                        }
+                        for (int i = dstOff; i < dstRow.Length; i++) dstRow[i] = 0;
+                        Marshal.Copy(dstRow, 0, IntPtr.Add(bd.Scan0, r * bd.Stride), dstRow.Length);
+                    }
+                }
+                else
+                {
+                    // 不支援的深度
+                    bmp.UnlockBits(bd);
+                    bmp.Dispose();
+                    return null;
+                }
             }
             finally
             {
-                outBmp?.Dispose();
-                src?.Dispose();
+                try { bmp.UnlockBits(bd); } catch { }
             }
+
+            return bmp;
         }
 
         private void BtnLive1_Click(object sender, EventArgs e)
@@ -450,85 +424,188 @@ namespace ISP_Comparision
             var tone = Measurements.ComputeTonePeak(processed);
             return new ImageMetrics { SNR = snr, MTF = mtf, DeltaE = de, TonePeak = tone };
         }
-    }
 
-    // Small container for pipeline options and processing
-    public class ISP_Pipeline
-    {
-        private Dictionary<string, string> options = new Dictionary<string, string>();
-        private string name;
-
-        public ISP_Pipeline(string name)
+        private void cbBWLevel1_SelectedIndexChanged(object sender, EventArgs e)
         {
-            this.name = name;
         }
 
-        public void SetOption(string module, string option)
+        private void cbLinearity1_SelectedIndexChanged(object sender, EventArgs e)
         {
-            options[module] = option;
+
         }
 
-        public Bitmap Process(Bitmap input)
+        // ---------- 新增：根據 enum 動態填充 ComboBox 並綁定 handler ----------
+        private void PopulateComboBoxesFromEnums()
         {
-            // Work on a cloned bitmap
-            Bitmap bmp = (Bitmap)input.Clone();
+            // pipeline1 / pipeline2 對應的 ComboBox，依你窗體上的命名
+            RegisterEnumCombo(cbBWLevel1, PipelineKey.BlackWhiteLevel, typeof(enumBlackWhiteLevel));
+            RegisterEnumCombo(cbBWLevel2, PipelineKey.BlackWhiteLevel, typeof(enumBlackWhiteLevel));
 
-            // Apply each module in a common sequence
-            bmp = ISPModules.ApplyBlackWhiteLevel(bmp, GetOpt("Black & White Level"));
-            bmp = ISPModules.ApplyLensShading(bmp, GetOpt("Lens Shading"));
-            bmp = ISPModules.ApplyBadPixelCorrection(bmp, GetOpt("Bad Pixel Correction"));
-            bmp = ISPModules.ApplyLinearityCorrection(bmp, GetOpt("Linearity Correction"));
-            bmp = ISPModules.ApplyDemosaic(bmp, GetOpt("Demosaic"));
-            bmp = ISPModules.ApplyAutoWhiteBalance(bmp, GetOpt("Auto White Balance"));
-            bmp = ISPModules.ApplyColorCorrectionMatrix(bmp, GetOpt("Color Correction Matrix"));
-            bmp = ISPModules.ApplyNoiseReduction(bmp, GetOpt("Noise Reduction"));
-            bmp = ISPModules.ApplyToneMapping(bmp, GetOpt("Tone Mapping"));
-            bmp = ISPModules.ApplyDistortionCorrection(bmp, GetOpt("Distortion Correction"));
-            bmp = ISPModules.ApplySharpening(bmp, GetOpt("Sharpening"));
-            // Frame Rate does not change pixels; ignore in offline processing
+            RegisterEnumCombo(cbLensShading1, PipelineKey.LensShading, typeof(enumLensShading));
+            RegisterEnumCombo(cbLensShading2, PipelineKey.LensShading, typeof(enumLensShading));
 
-            return bmp;
+            RegisterEnumCombo(cbBadPixel1, PipelineKey.BadPixelCorrection, typeof(enumBadPixelCorrection));
+            RegisterEnumCombo(cbBadPixel2, PipelineKey.BadPixelCorrection, typeof(enumBadPixelCorrection));
+
+            RegisterEnumCombo(cbLinearity1, PipelineKey.LinearityCorrection, typeof(enumLinearityCorrection));
+            RegisterEnumCombo(cbLinearity2, PipelineKey.LinearityCorrection, typeof(enumLinearityCorrection));
+
+            RegisterEnumCombo(cbDemosaic1, PipelineKey.Demosaic, typeof(enumDemosaic));
+            RegisterEnumCombo(cbDemosaic2, PipelineKey.Demosaic, typeof(enumDemosaic));
+
+            RegisterEnumCombo(cbAWB1, PipelineKey.AutoWhiteBalance, typeof(enumAutoWhiteBalance));
+            RegisterEnumCombo(cbAWB2, PipelineKey.AutoWhiteBalance, typeof(enumAutoWhiteBalance));
+
+            RegisterEnumCombo(cbCCM1, PipelineKey.ColorCorrection, typeof(enumColorCorrection));
+            RegisterEnumCombo(cbCCM2, PipelineKey.ColorCorrection, typeof(enumColorCorrection));
+
+            RegisterEnumCombo(cbNoise1, PipelineKey.NoiseReduction, typeof(enumNoiseReduction));
+            RegisterEnumCombo(cbNoise2, PipelineKey.NoiseReduction, typeof(enumNoiseReduction));
+
+            RegisterEnumCombo(cbTone1, PipelineKey.ToneMapping, typeof(enumToneMapping));
+            RegisterEnumCombo(cbTone2, PipelineKey.ToneMapping, typeof(enumToneMapping));
+
+            RegisterEnumCombo(cbDistort1, PipelineKey.DistortionCorrection, typeof(enumDistortionCorrection));
+            RegisterEnumCombo(cbDistort2, PipelineKey.DistortionCorrection, typeof(enumDistortionCorrection));
+
+            RegisterEnumCombo(cbSharpen1, PipelineKey.Sharpening, typeof(enumSharpening));
+            RegisterEnumCombo(cbSharpen2, PipelineKey.Sharpening, typeof(enumSharpening));
         }
 
-        private string GetOpt(string key)
+        private void RegisterEnumCombo(ComboBox cb, PipelineKey key, Type enumType)
         {
-            if (!options.ContainsKey(key)) return "None";
-            return options[key] ?? "None";
+            if (cb == null || enumType == null) return;
+
+            cb.BeginUpdate();
+            cb.Items.Clear();
+            var names = Enum.GetNames(enumType);
+            foreach (var n in names) cb.Items.Add(n);
+            // 保證至少有一項
+            if (cb.Items.Count == 0) cb.Items.Add("None");
+            
+            cb.SelectedIndex = (cb.Items.Count > 0) ? 1 : 0;
+
+
+            // 使用 Tag 存放對應資訊： (PipelineKey, enumType)
+            cb.Tag = new Tuple<PipelineKey, Type>(key, enumType);
+
+            // 綁定通用 handler（不會移除 designer 綁定的 handler；雙重設定會被接受）
+            cb.SelectedIndexChanged -= EnumCombo_SelectedIndexChanged;
+            cb.SelectedIndexChanged += EnumCombo_SelectedIndexChanged;
+            cb.EndUpdate();
         }
-    }
 
-    // ISPModules and Measurements unchanged...
-    public static class ISPModules
-    {
-        // implementations omitted for brevity in this snippet (unchanged from prior)
-        // ...
-        public static Bitmap ApplyBlackWhiteLevel(Bitmap src, string option) { return src; }
-        public static Bitmap ApplyLensShading(Bitmap src, string option) { return src; }
-        public static Bitmap ApplyBadPixelCorrection(Bitmap src, string option) { return src; }
-        public static Bitmap ApplyLinearityCorrection(Bitmap src, string option) { return src; }
-        public static Bitmap ApplyDemosaic(Bitmap src, string option) { return src; }
-        public static Bitmap ApplyAutoWhiteBalance(Bitmap src, string option) { return src; }
-        public static Bitmap ApplyColorCorrectionMatrix(Bitmap src, string option) { return src; }
-        public static Bitmap ApplyNoiseReduction(Bitmap src, string option) { return src; }
-        public static Bitmap ApplyToneMapping(Bitmap src, string option) { return src; }
-        public static Bitmap ApplyDistortionCorrection(Bitmap src, string option) { return src; }
-        public static Bitmap ApplySharpening(Bitmap src, string option) { return src; }
-    }
+        private void EnumCombo_SelectedIndexChanged(object sender, EventArgs e)
+        {
+            var cb = sender as ComboBox;
+            if (cb == null) return;
+            if (cb.SelectedIndex < 0) return;
+            var t = cb.Tag as Tuple<PipelineKey, Type>;
+            if (t == null) return;
 
-    public static class Measurements
-    {
-        // implementations unchanged (omitted here for brevity)
-        public static double ComputeSNR(Bitmap bmp) { return 0; }
-        public static double ComputeMTF(Bitmap bmp) { return 0; }
-        public static double ComputeDeltaEApprox(Bitmap a, Bitmap b) { return 0; }
-        public static double ComputeTonePeak(Bitmap bmp) { return 0; }
-    }
+            var key = t.Item1;
+            var enumType = t.Item2;
 
-    public class ImageMetrics
-    {
-        public double SNR { get; set; }
-        public double MTF { get; set; }
-        public double DeltaE { get; set; }
-        public double TonePeak { get; set; }
+            // 以選取的名稱解析 enum 值，再用字串 overload 更新 controller
+            var selectedName = cb.SelectedItem?.ToString();
+            if (string.IsNullOrEmpty(selectedName)) return;
+
+            try
+            {
+                var enumValueObj = Enum.Parse(enumType, selectedName);
+                // 使用 Controller 的 string overload（會解析 key name）或直接使用 PipelineKey 轉換
+                // 這裡直接呼叫 string overload以避免泛型反射
+                mController.SetParam(key.ToString(), (Enum)enumValueObj);
+            }
+            catch
+            {
+                // 忽略解析錯誤（不應該發生）
+            }
+        }
+
+        // Small container for pipeline options and processing
+        public class ISP_Pipeline
+        {
+            private Dictionary<string, string> options = new Dictionary<string, string>();
+            private string name;
+
+            public ISP_Pipeline(string name)
+            {
+                this.name = name;
+            }
+
+            public void SetOption(string module, string option)
+            {
+                options[module] = option;
+            }
+
+            public Bitmap Process(Bitmap input)
+            {
+                // Work on a cloned bitmap
+                Bitmap bmp = (Bitmap)input.Clone();
+
+                // Apply each module in a common sequence
+                bmp = ISPModules.ApplyBlackWhiteLevel(bmp, GetOpt("Black & White Level"));
+                bmp = ISPModules.ApplyLensShading(bmp, GetOpt("Lens Shading"));
+                bmp = ISPModules.ApplyBadPixelCorrection(bmp, GetOpt("Bad Pixel Correction"));
+                bmp = ISPModules.ApplyLinearityCorrection(bmp, GetOpt("Linearity Correction"));
+                bmp = ISPModules.ApplyDemosaic(bmp, GetOpt("Demosaic"));
+                bmp = ISPModules.ApplyAutoWhiteBalance(bmp, GetOpt("Auto White Balance"));
+                bmp = ISPModules.ApplyColorCorrectionMatrix(bmp, GetOpt("Color Correction Matrix"));
+                bmp = ISPModules.ApplyNoiseReduction(bmp, GetOpt("Noise Reduction"));
+                bmp = ISPModules.ApplyToneMapping(bmp, GetOpt("Tone Mapping"));
+                bmp = ISPModules.ApplyDistortionCorrection(bmp, GetOpt("Distortion Correction"));
+                bmp = ISPModules.ApplySharpening(bmp, GetOpt("Sharpening"));
+                // Frame Rate does not change pixels; ignore in offline processing
+
+                return bmp;
+            }
+
+            private string GetOpt(string key)
+            {
+                if (!options.ContainsKey(key)) return "None";
+                return options[key] ?? "None";
+            }
+        }
+
+        // ISPModules and Measurements unchanged...
+        public static class ISPModules
+        {
+            // implementations omitted for brevity in this snippet (unchanged from prior)
+            // ...
+            public static Bitmap ApplyBlackWhiteLevel(Bitmap src, string option) { return src; }
+            public static Bitmap ApplyLensShading(Bitmap src, string option) { return src; }
+            public static Bitmap ApplyBadPixelCorrection(Bitmap src, string option) { return src; }
+            public static Bitmap ApplyLinearityCorrection(Bitmap src, string option) { return src; }
+            public static Bitmap ApplyDemosaic(Bitmap src, string option) { return src; }
+            public static Bitmap ApplyAutoWhiteBalance(Bitmap src, string option) { return src; }
+            public static Bitmap ApplyColorCorrectionMatrix(Bitmap src, string option) { return src; }
+            public static Bitmap ApplyNoiseReduction(Bitmap src, string option) { return src; }
+            public static Bitmap ApplyToneMapping(Bitmap src, string option) { return src; }
+            public static Bitmap ApplyDistortionCorrection(Bitmap src, string option) { return src; }
+            public static Bitmap ApplySharpening(Bitmap src, string option) { return src; }
+        }
+
+        public static class Measurements
+        {
+            // implementations unchanged (omitted here for brevity)
+            public static double ComputeSNR(Bitmap bmp) { return 0; }
+            public static double ComputeMTF(Bitmap bmp) { return 0; }
+            public static double ComputeDeltaEApprox(Bitmap a, Bitmap b) { return 0; }
+            public static double ComputeTonePeak(Bitmap bmp) { return 0; }
+        }
+
+        public class ImageMetrics
+        {
+            public double SNR { get; set; }
+            public double MTF { get; set; }
+            public double DeltaE { get; set; }
+            public double TonePeak { get; set; }
+        }
+
+        private void cbTone1_SelectedIndexChanged(object sender, EventArgs e)
+        {
+
+        }
     }
 }
