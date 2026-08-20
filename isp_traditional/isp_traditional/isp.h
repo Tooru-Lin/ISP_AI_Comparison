@@ -41,7 +41,7 @@ public:
 
         // ----------------- Enum 參數 map -----------------
         enumAWB_params["AWB_Method"] = AWB_Method::Default;       // 預設 AWB 方法
-        enumDemosaic_params["Demosaic_Method"] = Demosaic_Method::CCM; // 預設 demosaic 方法
+        enumDemosaic_params["Demosaic_Method"] = Demosaic_Method::AI; // 預設 demosaic 方法
     }
 
     // ----------------- Bool 參數操作 -----------------
@@ -108,7 +108,11 @@ public:
     // 壓縮與輸出
     ErrCode showPreview(const cv::Mat& img, const std::string& title, double scale = 1.0, bool autoContrast = true);
 
-
+    // ISP_native_api.h
+    ErrCode SetAiDemosaicModel(const char* modelPath);
+    ErrCode AiDemosaicWithModel(cv::Mat& raw, cv::Mat& out_bgr32, const char* modelPath);
+    // 若想先設定再呼叫：
+    ErrCode AiDemosaic(cv::Mat& raw, cv::Mat& out_bgr32);
 
 private:
     int ImgCount = 1;
@@ -119,4 +123,10 @@ private:
     // ----------------- Enum 參數 -----------------
     std::unordered_map<std::string, AWB_Method> enumAWB_params;
     std::unordered_map<std::string, Demosaic_Method> enumDemosaic_params;
+
+    // ============================
+    // AI Demosaic (ONNX via OpenCV DNN)
+    // ============================
+    cv::dnn::Net ai_net;           // 載入的 ONNX 模型
+    std::string ai_model_path;     // 目前載入的模型路徑
 };

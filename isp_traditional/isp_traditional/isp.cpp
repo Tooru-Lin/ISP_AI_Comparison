@@ -1,11 +1,13 @@
 #include "isp.h"
 #include <opencv2/opencv.hpp>
+#include <opencv2/dnn.hpp>
 #include <libraw/libraw.h>
 #include <iostream>
 #include <algorithm>
 #include <cstring>
 #include <vector>
 #include <functional>
+#include <filesystem>
 
 // 在 includes 之後加入（靠近檔案頂端）
 static void CalLowHigh(const cv::Mat& img, double& lowVal, double& highVal);
@@ -475,6 +477,254 @@ ISP::ErrCode ISP::demosaic(const cv::Mat& rawIn, cv::Mat& out_bgr32) {
         return ErrCode::Unknown;
     }
 }
+
+
+// 設定 / 載入 ONNX 模型
+ISP::ErrCode ISP::SetAiDemosaicModel(const char* modelPath)
+{
+    try {
+        if (modelPath == nullptr) return ErrCode::InvalidInput;
+
+        std::string path(modelPath);
+        std::ifstream f(path.c_str());
+        if (!f.good()) {
+            std::cerr << "Model file not found: " << path << std::endl;
+            return ErrCode::InvalidInput;
+        }
+        f.close();
+
+        // 嘗試用 OpenCV DNN 載入 ONNX 模型
+        cv::dnn::Net net;
+        try {
+            net = cv::dnn::readNetFromONNX(path);
+        }
+        catch (const cv::Exception& e) {
+            std::cerr << "Failed to read ONNX model: " << e.what() << std::endl;
+            return ErrCode::InvalidInput;
+        }
+
+        // 設定 backend / target，優先使用 CPU（可視需要改為 CUDA）
+        net.setPreferableBackend(cv::dnn::DNN_BACKEND_DEFAULT);
+        net.setPreferableTarget(cv::dnn::DNN_TARGET_CPU);
+
+        // 儲存到物件
+        ai_net = net;
+        ai_model_path = path;
+
+        return ErrCode::Ok;
+    }
+    catch (const std::exception& ex) {
+        std::cerr << "Exception in SetAiDemosaicModel: " << ex.what() << std::endl;
+        return ErrCode::Exception;
+    }
+    catch (...) {
+        std::cerr << "Unknown exception in SetAiDemosaicModel" << std::endl;
+        return ErrCode::Unknown;
+    }
+}
+
+// 用指定 modelPath 直接推論（單次）
+ISP::ErrCode ISP::AiDemosaicWithModel(cv::Mat& raw, cv::Mat& out_bgr32, const char* modelPath)
+{
+    try {
+        // 載入模型（若失敗會回傳錯誤）
+        ErrCode ec = SetAiDemosaicModel(modelPath);
+        if (ec != ErrCode::Ok) return ec;
+
+        // 呼叫已載入的 AiDemosaic
+        return AiDemosaic(raw, out_bgr32);
+    }
+    catch (const std::exception& ex) {
+        std::cerr << "Exception in AiDemosaicWithModel: " << ex.what() << std::endl;
+        return ErrCode::Exception;
+    }
+    catch (...) {
+        std::cerr << "Unknown exception in AiDemosaicWithModel" << std::endl;
+        return ErrCode::Unknown;
+    }
+}
+
+// 使用已載入模型進行推論
+ISP::ErrCode ISP::AiDemosaic(cv::Mat& raw, cv::Mat& out_bgr32)
+{
+    try {
+        if (raw.empty()) return ErrCode::EmptyImage;
+
+        if (ai_net.empty()) {
+            std::cerr << "AI model not loaded. Call SetAiDemosaicModel first." << std::endl;
+            return ErrCode::InvalidInput;
+        }
+
+        // 確保 raw 為 single-channel 或 3-channel float (0..1)
+        cv::Mat inputMat;
+        if (raw.type() == CV_32F) {
+            inputMat = raw;
+        }
+        else if (raw.type() == CV_16U) {
+            raw.convertTo(inputMat, CV_32F, 1.0 / 65535.0);
+        }
+        else if (raw.type() == CV_8U) {
+            raw.convertTo(inputMat, CV_32F, 1.0 / 255.0);
+        }
+        else {
+            return ErrCode::InvalidInput;
+        }
+
+        // 偵錯輸出：印出輸入尺寸與通道數，確保尺寸正確
+        std::cerr << "AiDemosaic: inputMat size = " << inputMat.cols << "x" << inputMat.rows
+            << ", channels = " << inputMat.channels() << ", type = " << inputMat.type() << std::endl;
+
+        // 若輸入為 single-channel，且看起來像 Bayer raw（常見情況），將拆成 4 通道 (H/2, W/2, 4)
+        // 檢查是否為 single-channel 與偶數尺寸（Bayer 需偶數高寬）
+        cv::Mat modelInput;
+        if (inputMat.channels() == 1) {
+            int H = inputMat.rows;
+            int W = inputMat.cols;
+
+            if ((H % 2) != 0 || (W % 2) != 0) {
+                std::cerr << "AiDemosaic: Bayer raw dimensions must be even. H=" << H << " W=" << W << std::endl;
+                return ErrCode::InvalidInput;
+            }
+
+            int h2 = H / 2;
+            int w2 = W / 2;
+
+            // 建立四個子通道 (R, G1, G2, B)
+            cv::Mat chR(h2, w2, CV_32F);
+            cv::Mat chG1(h2, w2, CV_32F);
+            cv::Mat chG2(h2, w2, CV_32F);
+            cv::Mat chB(h2, w2, CV_32F);
+
+            // 填入子通道：R(y=0,x=0), G1(y=0,x=1), G2(y=1,x=0), B(y=1,x=1)
+            for (int y = 0; y < h2; ++y) {
+                const float* row0 = inputMat.ptr<float>(y * 2);
+                const float* row1 = inputMat.ptr<float>(y * 2 + 1);
+                float* pR = chR.ptr<float>(y);
+                float* pG1 = chG1.ptr<float>(y);
+                float* pG2 = chG2.ptr<float>(y);
+                float* pB = chB.ptr<float>(y);
+                for (int x = 0; x < w2; ++x) {
+                    pR[x] = row0[x * 2];       // (0,0)
+                    pG1[x] = row0[x * 2 + 1];   // (0,1)
+                    pG2[x] = row1[x * 2];       // (1,0)
+                    pB[x] = row1[x * 2 + 1];   // (1,1)
+                }
+            }
+
+            // Clip 到 0..1 - 使用 cv::threshold（與專案其他地方一致，避免 std::min/std::max 衝突）
+            cv::threshold(chR, chR, 0.0, 0.0, cv::THRESH_TOZERO);
+            cv::threshold(chR, chR, 1.0, 1.0, cv::THRESH_TRUNC);
+
+            cv::threshold(chG1, chG1, 0.0, 0.0, cv::THRESH_TOZERO);
+            cv::threshold(chG1, chG1, 1.0, 1.0, cv::THRESH_TRUNC);
+
+            cv::threshold(chG2, chG2, 0.0, 0.0, cv::THRESH_TOZERO);
+            cv::threshold(chG2, chG2, 1.0, 1.0, cv::THRESH_TRUNC);
+
+            cv::threshold(chB, chB, 0.0, 0.0, cv::THRESH_TOZERO);
+            cv::threshold(chB, chB, 1.0, 1.0, cv::THRESH_TRUNC);
+
+
+            // 合成 4 通道影像 (h2, w2, 4)
+            std::vector<cv::Mat> raw4ch_vec;
+            raw4ch_vec.push_back(chR);
+            raw4ch_vec.push_back(chG1);
+            raw4ch_vec.push_back(chG2);
+            raw4ch_vec.push_back(chB);
+            cv::Mat raw4ch;
+            cv::merge(raw4ch_vec, raw4ch); // raw4ch: H/2 x W/2 x 4
+
+            // 顯示組成後尺寸供偵錯
+            std::cerr << "AiDemosaic: assembled raw4ch size = " << raw4ch.cols << "x" << raw4ch.rows
+                << ", channels = " << raw4ch.channels() << std::endl;
+
+            modelInput = raw4ch; // 作為模型輸入
+        }
+        else {
+            // 若輸入已經是多通道（例如已去馬賽克或其他格式），直接以原輸入為模型輸入
+            modelInput = inputMat;
+        }
+
+
+
+        // 如果是多通道但模型期望 single-channel，可合併或取第一通道（此處保留原始 channel）
+        // 建立 blob：保持原始大小，no mean/subtract
+        cv::Mat blob = cv::dnn::blobFromImage(modelInput, 1.0, modelInput.size(), cv::Scalar(), false, false);
+
+
+        // 設定輸入並 forward
+        ai_net.setInput(blob);
+        cv::Mat outBlob;
+        try {
+            outBlob = ai_net.forward();
+        }
+        catch (const cv::Exception& e) {
+            std::cerr << "ONNX forward failed: " << e.what() << std::endl;
+            return ErrCode::DemosaicFailed;
+        }
+
+        // outBlob 可能形狀為 1 x C x H x W 或 1 x H x W x C 等。處理常見 4D (NCHW)
+        if (outBlob.dims != 4) {
+            // 嘗試 reshape 若可能
+            std::cerr << "Unexpected output dimensions from model: " << outBlob.dims << std::endl;
+            return ErrCode::DemosaicFailed;
+        }
+
+        int n = outBlob.size[0];
+        int c = outBlob.size[1];
+        int h = outBlob.size[2];
+        int w = outBlob.size[3];
+
+        if (n < 1) return ErrCode::DemosaicFailed;
+        if (c != 3 && c != 1) {
+            std::cerr << "Model output channels not 1 or 3: " << c << std::endl;
+            return ErrCode::DemosaicFailed;
+        }
+
+        // 轉換成 HxWxC CV_32F
+        std::vector<cv::Mat> channels;
+        channels.reserve(c);
+        // outBlob is NCHW float; extract each channel
+        for (int i = 0; i < c; ++i) {
+            // create Mat header pointing to data for channel i
+            cv::Mat ch(h, w, CV_32F, outBlob.ptr(0, i));
+            channels.push_back(ch.clone()); // clone to own memory
+        }
+
+        cv::Mat merged;
+        if (c == 1) {
+            // single channel -> replicate to 3 channels (灰階)
+            cv::Mat gray = channels[0];
+            cv::Mat bgr;
+            cv::cvtColor(gray, bgr, cv::COLOR_GRAY2BGR);
+            merged = bgr;
+        }
+        else {
+            // c==3 : typical model ordered as BGR or RGB unknown; assume output is RGB -> convert to BGR
+            // Many ONNX models output RGB; here attempt to detect reasonable range: if values in [0,1], leave
+            cv::Mat m;
+            cv::merge(channels, m); // m is HxWx3 with channel order [ch0,ch1,ch2]
+            // Try to detect if model produced RGB: we assume RGB -> convert to BGR
+            cv::cvtColor(m, merged, cv::COLOR_RGB2BGR);
+        }
+
+        // 確保 output 為 CV_32F 及範圍 0..1；若必要可 clip
+        cv::threshold(merged, merged, 0.0, 0.0, cv::THRESH_TOZERO);
+        cv::threshold(merged, merged, 1.0, 1.0, cv::THRESH_TRUNC);
+
+        out_bgr32 = merged;
+        return ErrCode::Ok;
+    }
+    catch (const std::exception& ex) {
+        std::cerr << "Exception in AiDemosaic: " << ex.what() << std::endl;
+        return ErrCode::Exception;
+    }
+    catch (...) {
+        std::cerr << "Unknown exception in AiDemosaic" << std::endl;
+        return ErrCode::Unknown;
+    }
+}
+
 
 // ========================================
 // 功能：色彩校正 (Color Correction Matrix)

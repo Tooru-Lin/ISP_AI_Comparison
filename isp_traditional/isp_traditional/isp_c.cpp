@@ -683,3 +683,66 @@ void ISP_Mat_GetInfo(ISP_Mat* mat, int* rows, int* cols, int* channels, int* typ
         std::cerr << "Exception in ISP_Mat_GetInfo: " << ex.what() << std::endl;
     }
 }
+
+ISP_ErrCode ISP_SetAiDemosaicModel(ISP_Context* ctx, const char* modelPath)
+{
+    if (!ctx || !modelPath) return ISP_InvalidInput;
+    try {
+        ISP* isp = reinterpret_cast<ISP*>(ctx->isp_instance);
+        if (!isp) return ISP_InvalidInput;
+        return static_cast<ISP_ErrCode>(isp->SetAiDemosaicModel(modelPath));
+    }
+    catch (...) { return ISP_Exception; }
+}
+
+ISP_ErrCode ISP_AiDemosaicWithModel(
+    ISP_Context* ctx,
+    ISP_Mat* raw,
+    ISP_Mat* out_bgr32,
+    const char* modelPath)
+{
+    if (!ctx || !raw || !out_bgr32) return ISP_InvalidInput;
+    try {
+        ISP* isp = reinterpret_cast<ISP*>(ctx->isp_instance);
+        if (!isp) return ISP_InvalidInput;
+
+        // 若給了 modelPath，先載入
+        if (modelPath) {
+            auto ec = isp->SetAiDemosaicModel(modelPath);
+            if (ec != ISP::ErrCode::Ok) return static_cast<ISP_ErrCode>(ec);
+        }
+
+        cv::Mat raw_mat = isp_mat_to_cvmat(raw);
+        cv::Mat out_mat;
+        auto ec = isp->AiDemosaic(raw_mat, out_mat);
+        if (ec != ISP::ErrCode::Ok) return static_cast<ISP_ErrCode>(ec);
+
+        ISP_Mat* tmp = cvmat_to_isp_mat(out_mat);
+        if (!tmp) return ISP_Exception;
+        *out_bgr32 = *tmp;
+        delete tmp;
+        return ISP_OK;
+    }
+    catch (...) { return ISP_Exception; }
+}
+
+ISP_ErrCode ISP_AiDemosaic(ISP_Context* ctx, ISP_Mat* raw, ISP_Mat* out_bgr32)
+{
+    if (!ctx || !raw || !out_bgr32) return ISP_InvalidInput;
+    try {
+        ISP* isp = reinterpret_cast<ISP*>(ctx->isp_instance);
+        if (!isp) return ISP_InvalidInput;
+
+        cv::Mat raw_mat = isp_mat_to_cvmat(raw);
+        cv::Mat out_mat;
+        auto ec = isp->AiDemosaic(raw_mat, out_mat);
+        if (ec != ISP::ErrCode::Ok) return static_cast<ISP_ErrCode>(ec);
+
+        ISP_Mat* tmp = cvmat_to_isp_mat(out_mat);
+        if (!tmp) return ISP_Exception;
+        *out_bgr32 = *tmp;
+        delete tmp;
+        return ISP_OK;
+    }
+    catch (...) { return ISP_Exception; }
+}

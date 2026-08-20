@@ -133,12 +133,35 @@ namespace ISP_CSharp
             float black_level,
             float white_level);
 
-        // Demosaic
+        // Demosaic (傳統)
         [DllImport(DLL_NAME, CallingConvention = CallingConvention.Cdecl)]
         public static extern ISP_ErrCode ISP_Demosaic(
             IntPtr ctx,
             ref ISP_Mat raw,
             out ISP_Mat out_bgr32);
+
+        // ---------------------------
+        // AI Demosaic native exports
+        // ---------------------------
+
+        // 設定 AI demosaic 模型（回傳 ISP_ErrCode）
+        [DllImport(DLL_NAME, CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi)]
+        public static extern ISP_ErrCode ISP_SetAiDemosaicModel(IntPtr ctx, string modelPath);
+
+        // AI demosaic（使用已設定的模型）
+        [DllImport(DLL_NAME, CallingConvention = CallingConvention.Cdecl)]
+        public static extern ISP_ErrCode ISP_AiDemosaic(
+            IntPtr ctx,
+            ref ISP_Mat raw,
+            out ISP_Mat out_bgr32);
+
+        // AI demosaic（直接帶 modelPath 的單次呼叫）
+        [DllImport(DLL_NAME, CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi)]
+        public static extern ISP_ErrCode ISP_AiDemosaicWithModel(
+            IntPtr ctx,
+            ref ISP_Mat raw,
+            out ISP_Mat out_bgr32,
+            string modelPath);
 
         // 計算 CCM 矩陣：
         [DllImport(DLL_NAME, CallingConvention = CallingConvention.Cdecl)]
@@ -390,11 +413,50 @@ namespace ISP_CSharp
         }
 
         /// <summary>
-        /// Demosaic - 去馬賽克
+        /// Demosaic - 去馬賽克 (傳統)
         /// </summary>
         public ISP_ErrCode Demosaic(ref ISP_Mat raw, out ISP_Mat out_bgr32)
         {
             return ISP_NativeMethods.ISP_Demosaic(ctx, ref raw, out out_bgr32);
+        }
+
+        /// <summary>
+        /// 設定 AI Demosaic 模型（若 DLL 支援）
+        /// </summary>
+        public ISP_ErrCode SetAiDemosaicModel(string modelPath)
+        {
+            return ISP_NativeMethods.ISP_SetAiDemosaicModel(ctx, modelPath);
+        }
+
+        /// <summary>
+        /// AI Demosaic（使用已設定模型）
+        /// </summary>
+        public ISP_ErrCode AiDemosaic(ref ISP_Mat raw, out ISP_Mat out_bgr32)
+        {
+            return ISP_NativeMethods.ISP_AiDemosaic(ctx, ref raw, out out_bgr32);
+        }
+
+        /// <summary>
+        /// AI Demosaic（嘗試直接帶 modelPath 的導出，若不可用 fallback 為先設定模型再呼叫）
+        /// </summary>
+        public ISP_ErrCode AiDemosaic(ref ISP_Mat raw, out ISP_Mat out_bgr32, string modelPath)
+        {
+            // 優先嘗試直接帶 modelPath 的導出
+            try
+            {
+                return ISP_NativeMethods.ISP_AiDemosaicWithModel(ctx, ref raw, out out_bgr32, modelPath);
+            }
+            catch (EntryPointNotFoundException)
+            {
+                // 若沒有該導出，再改用先設定模型再呼叫 ISP_AiDemosaic
+                ISP_ErrCode setEc = ISP_NativeMethods.ISP_SetAiDemosaicModel(ctx, modelPath);
+                if (setEc != ISP_ErrCode.Ok)
+                {
+                    out_bgr32 = new ISP_Mat();
+                    return setEc;
+                }
+                return ISP_NativeMethods.ISP_AiDemosaic(ctx, ref raw, out out_bgr32);
+            }
         }
 
         /// <summary>

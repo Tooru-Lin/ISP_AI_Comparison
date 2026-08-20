@@ -1,4 +1,3 @@
-
 import torch
 import torch.nn as nn
 import torch.optim as optim
@@ -21,6 +20,8 @@ from isp_ai.unet import UNet
 from common.PreprocessedCropDataset import PreprocessedCropDataset
 from common.BayerDataset import BayerDataset
 from common.common_func import *
+import cv2
+from onnx import numpy_helper
 
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -223,11 +224,35 @@ if __name__ == "__main__":
             output_names=["output"],
             opset_version=17,  # 建議最新支持版本
             dynamic_axes={"input": {0: "batch_size"}, "output": {0: "batch_size"}},
-            external_data=False
+            external_data=False,
+            dynamo=False
         )
         
         # 優化 ONNX 模型
         model = onnx.load(model_fp32)
+
+        # 測試模型可以用 cv.dnn 讀取
+        # for node in model.graph.node:
+        #     if node.op_type == "Conv":
+        #         print("Node:", node.name)
+        #         for attr in node.attribute:
+        #             print(attr.name, end=" = ")
+
+        #             if attr.type == onnx.AttributeProto.INT:
+        #                 print(attr.i)
+
+        #             elif attr.type == onnx.AttributeProto.INTS:
+        #                 print(list(attr.ints))
+
+        #             else: print(f" {attr.name} (type={attr.type})")
+
+        # try:
+        #     net = cv2.dnn.readNetFromONNX(model_fp32)
+        #     print("OpenCV DNN: PASS")
+        # except cv2.error as e:
+        #     print("OpenCV DNN: FAIL")
+        #     print(e)
+
         passes = onnxoptimizer.get_fuse_and_elimination_passes()
         optimized_model = onnxoptimizer.optimize(model, passes)
         onnx.save(optimized_model, model_fp32_opt)
@@ -244,4 +269,5 @@ if __name__ == "__main__":
         print("Quantization done. Saved to:", model_int8)
 
 
-    main()
+
+# main()

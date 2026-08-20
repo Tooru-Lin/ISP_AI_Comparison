@@ -1,6 +1,7 @@
 ﻿using ISP_CSharp;
 using System;
 using System.Collections.Generic;
+using System.Diagnostics.Eventing.Reader;
 using System.Drawing;
 using System.Drawing.Imaging;
 using System.IO;
@@ -16,7 +17,8 @@ namespace ISP_Comparision
         private string originalImagePath;
         private ISP_Pipeline isp1;
         private ISP_Pipeline isp2;
-        private Controller mController;
+        private Controller mController1;
+        private Controller mController2;
         private ImageBoxViewer viewer1;
         private ImageBoxViewer viewer2;
         private System.Windows.Forms.Timer liveTimer1;
@@ -31,7 +33,8 @@ namespace ISP_Comparision
             InitializePipelines();
             InitializeTimers();
 
-            mController = new Controller();
+            mController1 = new Controller();
+            mController2 = new Controller();
 
             // 動態用 enum 填充 ComboBox 項目，並綁定通用 handler
             PopulateComboBoxesFromEnums();
@@ -189,7 +192,7 @@ namespace ISP_Comparision
             {
                 string rawPath = originalImagePath;
 
-                mController.Measure(originalImagePath, out ISP_Mat Output_Color, out ISP_Mat Output_Channel);
+                mController1.Measure(originalImagePath, out ISP_Mat Output_Color, out ISP_Mat Output_Channel);
 
                 // 先 dispose/clear 由 viewer 處理
                 if (Output_Color.data != IntPtr.Zero)
@@ -215,7 +218,7 @@ namespace ISP_Comparision
             {
                 string rawPath = originalImagePath;
 
-                mController.Measure(originalImagePath, out ISP_Mat Output_Color, out ISP_Mat Output_Channel);
+                mController2.Measure(originalImagePath, out ISP_Mat Output_Color, out ISP_Mat Output_Channel);
 
                 // 先 dispose/clear 由 viewer 處理
                 if (Output_Color.data != IntPtr.Zero)
@@ -515,7 +518,15 @@ namespace ISP_Comparision
                 var enumValueObj = Enum.Parse(enumType, selectedName);
                 // 使用 Controller 的 string overload（會解析 key name）或直接使用 PipelineKey 轉換
                 // 這裡直接呼叫 string overload以避免泛型反射
-                mController.SetParam(key.ToString(), (Enum)enumValueObj);
+
+                if (((ComboBox)sender).Name.EndsWith("1"))
+                {
+                    mController1.SetParam(key.ToString(), (Enum)enumValueObj);
+                }
+                else if (((ComboBox)sender).Name.EndsWith("2"))
+                {
+                    mController2.SetParam(key.ToString(), (Enum)enumValueObj);
+                }
             }
             catch
             {

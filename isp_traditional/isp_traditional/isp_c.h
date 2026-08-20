@@ -214,6 +214,29 @@ extern "C" {
     // 取得 Mat 資訊
     ISP_API void ISP_Mat_GetInfo(ISP_Mat* mat, int* rows, int* cols, int* channels, int* type);
 
+    // 設定/載入 ONNX 模型（存在於 ISP 物件內）
+    // ctx: ISP 上下文
+    // modelPath: NULL 結尾的路徑字串 (ANSI)
+    // 回傳 ISP_ErrCode
+    ISP_API ISP_ErrCode ISP_SetAiDemosaicModel(ISP_Context* ctx, const char* modelPath);
+
+    // 使用指定 modelPath 做一次性推論（不修改 ctx 的已載入模型）
+    // raw: 輸入 Bayer 或 raw Mat（由呼叫端保證格式）
+    // out_bgr32: 輸出 3-channel CV_32F BGR（由函式配置，呼叫端負責 ISP_Mat_Release）
+    // modelPath: 若為 NULL，行為等同 ISP_AiDemosaic（使用已載入模型）
+    // 回傳 ISP_ErrCode
+    ISP_API ISP_ErrCode ISP_AiDemosaicWithModel(
+        ISP_Context* ctx,
+        ISP_Mat* raw,
+        ISP_Mat* out_bgr32,
+        const char* modelPath);
+
+    // 使用先前透過 ISP_SetAiDemosaicModel 載入的模型進行推論
+    ISP_API ISP_ErrCode ISP_AiDemosaic(
+        ISP_Context* ctx,
+        ISP_Mat* raw,
+        ISP_Mat* out_bgr32);
+
 #ifdef __cplusplus
 }
 #endif

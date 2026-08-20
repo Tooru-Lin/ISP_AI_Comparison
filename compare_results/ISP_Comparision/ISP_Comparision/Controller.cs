@@ -19,6 +19,9 @@ namespace ISP_Comparision
     public enum enumDistortionCorrection { None = 0, Default = 1 }
     public enum enumSharpening { None = 0, Default = 1 }
 
+    // 新增：AI 模型選擇 enum
+    public enum enumAiModelType { ModelRaw = 0, ModelOptimized = 1, ModelInt8 = 2 }
+
     // Pipeline key 改成 enum
     public enum PipelineKey
     {
@@ -32,7 +35,8 @@ namespace ISP_Comparision
         NoiseReduction,
         ToneMapping,
         DistortionCorrection,
-        Sharpening
+        Sharpening,
+        AiModelType  // 新增：用於選擇 AI 模型
     }
 
     internal class Controller
@@ -56,7 +60,8 @@ namespace ISP_Comparision
                 { PipelineKey.NoiseReduction, typeof(enumNoiseReduction) },
                 { PipelineKey.ToneMapping, typeof(enumToneMapping) },
                 { PipelineKey.DistortionCorrection, typeof(enumDistortionCorrection) },
-                { PipelineKey.Sharpening, typeof(enumSharpening) }
+                { PipelineKey.Sharpening, typeof(enumSharpening) },
+                { PipelineKey.AiModelType, typeof(enumAiModelType) }  // 新增
             };
 
             mPipeProcess = new Dictionary<PipelineKey, object>
@@ -71,7 +76,8 @@ namespace ISP_Comparision
                 { PipelineKey.NoiseReduction, enumNoiseReduction.Default },
                 { PipelineKey.ToneMapping, enumToneMapping.Default },
                 { PipelineKey.DistortionCorrection, enumDistortionCorrection.Default },
-                { PipelineKey.Sharpening, enumSharpening.Default }
+                { PipelineKey.Sharpening, enumSharpening.Default },
+                { PipelineKey.AiModelType, enumAiModelType.ModelOptimized }  // 預設用優化模型
             };
         }
 
@@ -137,7 +143,6 @@ namespace ISP_Comparision
         }
 
         // ---------- 字串 overload（方便與舊程式整合） ----------
-        // 會嘗試忽略大小寫，並嘗試用 RemoveNonAlnum 轉換後解析
 
         private static string RemoveNonAlnum(string s)
         {
@@ -151,7 +156,6 @@ namespace ISP_Comparision
             key = default(PipelineKey);
             if (string.IsNullOrWhiteSpace(keyName)) return false;
             if (Enum.TryParse<PipelineKey>(keyName, true, out key)) return true;
-            // 嘗試移除非英數字再解析（例如 "Black & White Level" -> "BlackWhiteLevel"）
             var compact = RemoveNonAlnum(keyName);
             return Enum.TryParse<PipelineKey>(compact, true, out key);
         }
@@ -184,11 +188,9 @@ namespace ISP_Comparision
             return TryGetParam<TEnum>(key, out value);
         }
 
-        // 批次設定字串鍵 -> Enum 版本（object 必須為 enum 並型別吻合）
         public void SetParams(IDictionary<string, object> dict)
         {
             if (dict == null) throw new ArgumentNullException(nameof(dict));
-            // 先驗證全部
             var temp = new List<KeyValuePair<PipelineKey, object>>();
             foreach (var kv in dict)
             {
@@ -201,14 +203,12 @@ namespace ISP_Comparision
                     throw new InvalidOperationException($"Parameter '{kv.Key}' expects enum type {expected.Name} not {kv.Value.GetType().Name}.");
                 temp.Add(new KeyValuePair<PipelineKey, object>(key, kv.Value));
             }
-            // 套用
             lock (sync)
             {
                 foreach (var t in temp) mPipeProcess[t.Key] = t.Value;
             }
         }
 
-        // 取得快照
         public Dictionary<PipelineKey, object> GetAllParametersSnapshot()
         {
             lock (sync)
@@ -222,6 +222,60 @@ namespace ISP_Comparision
             lock (sync) return mPipeProcess.Keys.ToArray();
         }
 
+        // 新增：根據 enum 取得模型檔案路徑
+        private string GetModelPath(enumAiModelType modelType)
+        {
+            string baseDir = AppDomain.CurrentDomain.BaseDirectory;
+            switch (modelType)
+            {
+                case enumAiModelType.ModelRaw:
+                    return Path.Combine(baseDir, "model_raw.onnx");
+                case enumAiModelType.ModelOptimized:
+                    return Path.Combine(baseDir, "model_optimized.onnx");
+                case enumAiModelType.ModelInt8:
+                    return Path.Combine(baseDir, "model_int8.onnx");
+                default:
+                    return Path.Combine(baseDir, "model_optimized.onnx");
+            }
+        }
+
+        // 新增：直接用 modelPath 執行 AI Demosaic（可被外部呼叫）
+        public ISP_ErrCode ApplyAiDemosaicOnnx(string modelPath, ref ISP_Mat raw, out ISP_Mat outColor)
+        {
+            outColor = new ISP_Mat();
+
+            if (string.IsNullOrWhiteSpace(modelPath))
+                return ISP_ErrCode.InvalidInput;
+
+            if (!File.Exists(modelPath))
+                return ISP_ErrCode.FileOpenFailed;
+
+            try
+            {
+                // 確保 DLL 可用（與 Measure 中一致）
+                NativeDiagnostics.DiagnoseIspDll(Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "isp_traditional.dll"));
+
+                using (var isp = new ISP_Processor())
+                {
+                    ISP_ErrCode ec = isp.AiDemosaic(ref raw, out outColor, modelPath);
+                    return ec;
+                }
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"ApplyAiDemosaicOnnx Error: {ex.Message}");
+                Console.WriteLine(ex.StackTrace);
+                outColor = new ISP_Mat();
+                return ISP_ErrCode.Exception;
+            }
+        }
+
+        // 新增：使用 enumAiModelType 選擇模型並執行 AI Demosaic
+        public ISP_ErrCode ApplyAiDemosaicOnnx(enumAiModelType modelType, ref ISP_Mat raw, out ISP_Mat outColor)
+        {
+            string modelPath = GetModelPath(modelType);
+            return ApplyAiDemosaicOnnx(modelPath, ref raw, out outColor);
+        }
 
         public int Measure(string ImagePath, out ISP_Mat Output_Color, out ISP_Mat Output_Channel)
         {
@@ -234,14 +288,8 @@ namespace ISP_Comparision
             {
                 NativeDiagnostics.DiagnoseIspDll(Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "isp_traditional.dll"));
 
-                // ========================================
-                // 1. 創建 ISP 處理器
-                // ========================================
                 using (var isp = new ISP_Processor())
                 {
-                    // ========================================
-                    // 3. 加載 RAW 檔案
-                    // ========================================
                     string rawPath = ImagePath;
                     if (!File.Exists(rawPath))
                     {
@@ -266,7 +314,6 @@ namespace ISP_Comparision
                         return ErrCode;
                     }
 
-
                     // ========================================
                     // 4. 黑白電平校正
                     // ========================================
@@ -283,8 +330,6 @@ namespace ISP_Comparision
                             break;
                     }
 
-
-
                     // ========================================
                     // 5. 白平衡
                     // ========================================
@@ -292,7 +337,6 @@ namespace ISP_Comparision
                     switch (obj)
                     {
                         case enumAutoWhiteBalance.Default:
-                            // 計算增益 (簡化版本，實際應根據選擇的方法)
                             double gainR = cam_mul[0] / cam_mul[1];
                             double gainG = 1.0;
                             double gainB = cam_mul[2] / cam_mul[1];
@@ -306,16 +350,13 @@ namespace ISP_Comparision
                             break;
                     }
 
-
-
                     // ========================================
-                    // 6. Demosaic
+                    // 6. Demosaic - 已修改支援 AI 模型
                     // ========================================
                     mPipeProcess.TryGetValue(PipelineKey.Demosaic, out obj);
                     switch (obj)
-                    { 
+                    {
                         case enumDemosaic.Default:
-                            // 預設使用 ISP 內建的 Demosaic 方法
                             ec = isp.Demosaic(ref Output_Channel, out Output_Color);
                             if (ec != ISP_ErrCode.Ok)
                             {
@@ -323,8 +364,32 @@ namespace ISP_Comparision
                                 return ErrCode;
                             }
                             break;
-                    }
+                        case enumDemosaic.Ai_Demosaic:
+                            // 取得選定的 AI 模型類型
+                            mPipeProcess.TryGetValue(PipelineKey.AiModelType, out var modelObj);
+                            enumAiModelType modelType = (modelObj is enumAiModelType mt) ? mt : enumAiModelType.ModelOptimized;
 
+                            // 取得模型檔案路徑
+                            string modelPath = GetModelPath(modelType);
+
+                            // 檢查模型檔案是否存在
+                            if (!File.Exists(modelPath))
+                            {
+                                ErrMsg = $"AI model file not found: {modelPath}";
+                                return ErrCode;
+                            }
+
+                            // 呼叫 AI Demosaic（假設 ISP_Processor 有相應的過載方法）
+                            // 如果 DLL 不支援路徑參數，需要先用 SetAiDemosaicModel 或類似方法設定
+                            ec = isp.AiDemosaic(ref Output_Channel, out Output_Color, modelPath);
+                            if (ec != ISP_ErrCode.Ok)
+                            {
+                                ErrMsg = $"AI Demosaic failed: {ec}, model: {modelPath}";
+                                return ErrCode;
+                            }
+
+                            break;
+                    }
 
                     // ========================================
                     // 7. 色彩校正
@@ -333,7 +398,6 @@ namespace ISP_Comparision
                     switch (obj)
                     {
                         case enumColorCorrection.Default:
-                            // 預設使用 ISP 內建的 CCM 計算方法
                             ISP_ErrCode ccmEc = isp.CalculateCCM(ref xyz_srgb, ref cam_xyz, out ISP_Mat ccm);
                             if (ccmEc != ISP_ErrCode.Ok)
                             {
@@ -350,7 +414,6 @@ namespace ISP_Comparision
                             break;
                     }
 
-
                     // ========================================
                     // 8. 色調映射
                     // ========================================
@@ -358,7 +421,6 @@ namespace ISP_Comparision
                     switch (obj)
                     {
                         case enumToneMapping.Default:
-                            // 預設使用 ISP 內建的色調映射方法
                             ec = isp.ApplyToneMapping(ref Output_Color, 1.8f);
                             if (ec != ISP_ErrCode.Ok)
                             {
@@ -367,7 +429,6 @@ namespace ISP_Comparision
                             }
                             break;
                     }
-
 
                     // ========================================
                     // 9. 銳化

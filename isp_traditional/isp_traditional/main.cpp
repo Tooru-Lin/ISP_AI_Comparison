@@ -2,6 +2,7 @@
 #include <iostream>
 #include <vector>
 #include <string>
+#include <fstream>
 #include <opencv2/opencv.hpp>
 
 void printMat(const cv::Mat& m, const std::string& name);
@@ -12,6 +13,8 @@ int main() {
     std::string path = "C:/Users/eevo1/OneDrive/Desktop/ISP_AI_Comparison/data/raw/Sony/Sony/short/00001_00_0.04s.ARW";
     //std::string path = "C:/Users/eevo1/OneDrive/Desktop/ISP_AI_Comparison/data/raw/Sony/Sony/long/00001_00_10s.ARW";
 
+    // 模型所在資料夾 (請根據實際路徑調整)
+    std::string ModelDir = "C:/Users/eevo1/OneDrive/Desktop/ISP_AI_Comparison/models";
 
     ISP isp; // stack 上創建，呼叫建構子
 
@@ -150,6 +153,25 @@ int main() {
     if (isp.getParamBool("DoDemosaic") && isp.getParamDemosaic() == ISP::Demosaic_Method::CCM)
     {
         ec = isp.demosaic(raw32, bgr32);
+        if (ec != ISP::ErrCode::Ok) {
+            std::cerr << "Demosaic failed with ErrCode=" << static_cast<int>(ec) << std::endl;
+            return -1;
+        }
+
+        isp.showPreview(bgr32, "Demosaic", scale);
+    }
+    else if (isp.getParamBool("DoDemosaic") && isp.getParamDemosaic() == ISP::Demosaic_Method::AI)
+    {
+        // 使用標準 C++ 字串拼接，並檢查檔案是否存在
+        std::string modelPath = ModelDir + "/model_raw.onnx";
+        std::ifstream mf(modelPath.c_str());
+        if (!mf.good()) {
+            std::cerr << "AI model not found: " << modelPath << std::endl;
+            return -1;
+        }
+        mf.close();
+
+        ec = isp.AiDemosaicWithModel(raw32, bgr32, modelPath.c_str());
         if (ec != ISP::ErrCode::Ok) {
             std::cerr << "Demosaic failed with ErrCode=" << static_cast<int>(ec) << std::endl;
             return -1;
