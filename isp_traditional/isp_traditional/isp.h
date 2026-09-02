@@ -36,13 +36,13 @@ public:
         bool_params["DoWhiteBlackLevel"] = true;  // 是否執行黑白電平校正
         bool_params["DoAWB"] = true;             // 是否執行白平衡
         bool_params["DoDemosaic"] = true;        // 是否執行 demosaic
-        bool_params["DoCCM"] = false;             // 是否執行色彩校正(CCM)
+        bool_params["DoCCM"] = true;             // 是否執行色彩校正(CCM)
         bool_params["DoGamma"] = true;           // 是否執行 Gamma 校正
         bool_params["DoSharpen"] = true;         // 是否執行銳化
 
         // ----------------- Enum 參數 map -----------------
-        enumAWB_params["AWB_Method"] = AWB_Method::WhitePoint;       // 預設 AWB 方法
-        enumDemosaic_params["Demosaic_Method"] = Demosaic_Method::Default; // 預設 demosaic 方法
+        enumAWB_params["AWB_Method"] = AWB_Method::Default;       // 預設 AWB 方法
+        enumDemosaic_params["Demosaic_Method"] = Demosaic_Method::AI; // 預設 demosaic 方法
     }
 
     // ----------------- Bool 參數操作 -----------------
@@ -77,6 +77,7 @@ public:
         std::vector<float>& pre_mul,  // AWB after demosaic
         cv::Mat& cam_xyz,             // 輸出 3x3 相機→XYZ 矩陣
         cv::Mat& xyz_srgb,            // 輸出 3x3 XYZ→sRGB 矩陣
+        cv::Mat& cam_rgb,             // 輸出 3x3 相機 RGB→相機 RGB 矩陣
         cv::Mat& raw32);              // 輸出 raw 32F
 
     // 黑白電平校正（normalize）

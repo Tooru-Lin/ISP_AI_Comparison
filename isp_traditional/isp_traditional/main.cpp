@@ -26,7 +26,7 @@ int main() {
     int black, white, width, height;
     std::vector<float> cam_mul;
     std::vector<float> pre_mul;
-    cv::Mat cam_xyz, xyz_srgb;
+    cv::Mat cam_xyz, xyz_srgb, cam_rgb;
     cv::Mat raw32;
 
     // 使用 ErrCode 回傳
@@ -39,6 +39,7 @@ int main() {
         pre_mul,                    // AWB after demosaic
         cam_xyz,                    // 輸出 3x3 相機→XYZ 矩陣
         xyz_srgb,
+        cam_rgb,                    // 輸出 3x3 相機 RGB→相機 RGB 矩陣
         raw32);
 
     if (ec != ISP::ErrCode::Ok || raw32.empty()) {
@@ -46,10 +47,12 @@ int main() {
         return -1;
     }
 
+    printMat(cam_xyz, "cam_xyz");
+
     // raw32 已為 CV_32F
     // 原 raw
     double scale = 0.5;
-    isp.showPreview(raw32, "Origin", scale);
+    //isp.showPreview(raw32, "Origin", scale);
 
     //......................................................................................................//
 
@@ -61,7 +64,7 @@ int main() {
             std::cerr << "BlackAndWhiteLevelCorrection failed with ErrCode=" << static_cast<int>(ec) << std::endl;
         }
 
-        isp.showPreview(raw32, "White Level Normalization", scale);
+        //isp.showPreview(raw32, "White Level Normalization", scale);
     }
 
 
@@ -90,7 +93,7 @@ int main() {
                     std::cerr << "ApplyAWBGain failed with ErrCode=" << static_cast<int>(ec) << std::endl;
                 }
 
-                isp.showPreview(raw32, "AWB (Default)", scale);
+                //isp.showPreview(raw32, "AWB (Default)", scale);
             }
             break;
             case ISP::AWB_Method::GrayWorld:
@@ -100,7 +103,7 @@ int main() {
                     // 套用 RBG Gain 
                     ec = isp.ApplyAWBGain(raw32, height, width, gain_R, gain_G, gain_B);
                     if (ec == ISP::ErrCode::Ok) {
-                        isp.showPreview(raw32, "AWB (Gray World)", scale);
+                        //isp.showPreview(raw32, "AWB (Gray World)", scale);
                     }
                     else {
                         std::cerr << "ApplyAWBGain failed with ErrCode=" << static_cast<int>(ec) << std::endl;
@@ -119,7 +122,7 @@ int main() {
                     // 套用 RBG Gain 
                     ec = isp.ApplyAWBGain(raw32, height, width, gain_R, gain_G, gain_B);
                     if (ec == ISP::ErrCode::Ok) {
-                        isp.showPreview(raw32, "AWB (White Patch)", scale);
+                        //isp.showPreview(raw32, "AWB (White Patch)", scale);
                     }
                     else {
                         std::cerr << "ApplyAWBGain failed with ErrCode=" << static_cast<int>(ec) << std::endl;
@@ -149,7 +152,7 @@ int main() {
             return -1;
         }
 
-        isp.showPreview(bgr32, "Demosaic", scale);
+        //isp.showPreview(bgr32, "Demosaic", scale);
     }
     else if (isp.getParamBool("DoDemosaic") && isp.getParamDemosaic() == ISP::Demosaic_Method::AI)
     {
@@ -168,7 +171,7 @@ int main() {
             return -1;
         }
 
-        isp.showPreview(bgr32, "Demosaic", scale);
+        //isp.showPreview(bgr32, "Demosaic", scale);
     }
 
     //......................................................................................................//
@@ -177,14 +180,28 @@ int main() {
     // 色彩校正
     if (isp.getParamBool("DoCCM"))
     {
-        cv::Mat ccm = xyz_srgb * cam_xyz;
+        //cv::Mat ccm_raw = xyz_srgb * cam_xyz;
 
-        printMat(xyz_srgb, "xyz_srgb");
-        printMat(cam_xyz.t(), "cam_xyz");
-        printMat(ccm, "ccm");
+        //printMat(xyz_srgb, "xyz_srgb");
+        //printMat(cam_xyz, "cam_xyz");
+        //printMat(ccm_raw, "ccm_raw");
+
+        //cv::Mat ccm = cv::Mat::zeros(3, 3, CV_32F);
+        //for (int i = 0; i < 3; ++i) {
+        //    float row_sum = ccm_raw.at<float>(i, 0) + ccm_raw.at<float>(i, 1) + ccm_raw.at<float>(i, 2);
+        //    if (std::abs(row_sum) > 1e-6f) {
+        //        ccm.at<float>(i, 0) = ccm_raw.at<float>(i, 0) / row_sum;
+        //        ccm.at<float>(i, 1) = ccm_raw.at<float>(i, 1) / row_sum;
+        //        ccm.at<float>(i, 2) = ccm_raw.at<float>(i, 2) / row_sum;
+        //    }
+        //}
+        //printMat(ccm, "ccm_final");
+
+
+        printMat(cam_rgb, "cam_rgb");
 
         cv::Mat bgr32_cc;
-        ec = isp.colorCorrection(bgr32, ccm, bgr32_cc);
+        ec = isp.colorCorrection(bgr32, cam_rgb, bgr32_cc);
         if (ec == ISP::ErrCode::Ok) {
             bgr32 = bgr32_cc;
             isp.showPreview(bgr32, "Color Correction", scale);
@@ -198,7 +215,7 @@ int main() {
     //......................................................................................................//
     // 曝光正規化(P50)
 
-    isp.normalizeExposureByP50(bgr32, 0.18);
+    isp.normalizeExposureByP50(bgr32, 0.8);
     if (ec != ISP::ErrCode::Ok) {
         std::cerr << "normalizeExposureByP50 failed with ErrCode=" << static_cast<int>(ec) << std::endl;
     }

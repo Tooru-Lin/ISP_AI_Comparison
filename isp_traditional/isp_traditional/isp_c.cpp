@@ -191,7 +191,9 @@ ISP_ErrCode ISP_LoadRawWithLibRaw(
     float* cam_mul,
     float* pre_mul,
     ISP_Mat* cam_xyz,
+    ISP_Mat* cam_rgb,
     ISP_Mat* xyz_srgb,
+
     ISP_Mat* raw32) {
     try {
         if (ctx == nullptr || filename == nullptr) {
@@ -202,14 +204,14 @@ ISP_ErrCode ISP_LoadRawWithLibRaw(
 
         int w, h, b, wh;
         std::vector<float> cam_mul_vec, pre_mul_vec;
-        cv::Mat cam_xyz_mat, xyz_srgb_mat, raw32_mat;
+        cv::Mat cam_xyz_mat, xyz_srgb_mat, cam_rgb_mat, raw32_mat;
 
         ISP::ErrCode ec = isp->loadRawWithLibRaw(
             filename,
             w, h, b, wh,
             cam_mul_vec, pre_mul_vec,
-            cam_xyz_mat, xyz_srgb_mat,
-            raw32_mat);
+            cam_xyz_mat, xyz_srgb_mat, 
+            cam_rgb_mat, raw32_mat);
 
         if (ec != ISP::ErrCode::Ok) {
             return static_cast<ISP_ErrCode>(ec);
@@ -230,6 +232,7 @@ ISP_ErrCode ISP_LoadRawWithLibRaw(
         // Âà´« Mat
         *cam_xyz = *cvmat_to_isp_mat(cam_xyz_mat);
         *xyz_srgb = *cvmat_to_isp_mat(xyz_srgb_mat);
+        *cam_rgb = *cvmat_to_isp_mat(cam_rgb_mat);
         *raw32 = *cvmat_to_isp_mat(raw32_mat);
 
         return ISP_OK;

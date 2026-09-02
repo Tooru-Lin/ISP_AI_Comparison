@@ -123,6 +123,7 @@ namespace ISP_CSharp
             float[] pre_mul,      // 輸出：4 個 float
             out ISP_Mat cam_xyz,
             out ISP_Mat xyz_srgb,
+            out ISP_Mat cam_rgb,
             out ISP_Mat raw32);
 
         // 黑白電平校正
@@ -383,6 +384,7 @@ namespace ISP_CSharp
             out float[] pre_mul,
             out ISP_Mat cam_xyz,
             out ISP_Mat xyz_srgb,
+            out ISP_Mat cam_rgb,
             out ISP_Mat raw32)
         {
             cam_mul = new float[4];
@@ -399,6 +401,7 @@ namespace ISP_CSharp
                 pre_mul,
                 out cam_xyz,
                 out xyz_srgb,
+                out cam_rgb,
                 out raw32);
 
             return ec;

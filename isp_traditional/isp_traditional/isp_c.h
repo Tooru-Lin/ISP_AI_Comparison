@@ -118,6 +118,7 @@ extern "C" {
         float* pre_mul,      // 輸出：4 個 float 的陣列
         ISP_Mat* cam_xyz,    // 輸出：3x3 矩陣
         ISP_Mat* xyz_srgb,   // 輸出：3x3 矩陣
+        ISP_Mat* cam_rgb,   // 輸出：3x3 矩陣
         ISP_Mat* raw32);     // 輸出：原始影像
 
     // 黑白電平校正

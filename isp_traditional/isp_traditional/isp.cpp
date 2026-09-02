@@ -44,6 +44,7 @@ ISP::ErrCode ISP::loadRawWithLibRaw(
     std::vector<float>& pre_mul,     // 輸出 AWB gains
     cv::Mat& cam_xyz,                // 輸出 3x3 相機→XYZ 矩陣
     cv::Mat& xyz2srgb,               // 輸出 3x3 XYZ→sRGB 矩陣
+    cv::Mat& cam_rgb,                // 輸出 3x3 相機 RGB→相機 RGB 矩陣
     cv::Mat& raw32                   // 輸出 raw 32F
 )
 {
@@ -125,13 +126,21 @@ ISP::ErrCode ISP::loadRawWithLibRaw(
             -0.9689, 1.8758, 0.0415,
             0.0557, -0.2040, 1.0570);
 
-        // 10. 防呆檢查
+        // 10. 提取相機 RGB → 相機 RGB 矩陣 (3x3)
+        cam_rgb = cv::Mat(3, 3, CV_32F);
+        for (int i = 0; i < 3; i++) {
+            for (int j = 0; j < 3; j++) {
+                cam_rgb.at<float>(i, j) = raw->color.rgb_cam[i][j];
+            }
+        }
+
+        // 11. 防呆檢查
         if (raw16.empty()) {
             std::cerr << "Failed to load image!" << std::endl;
             return ErrCode::EmptyImage;
         }
 
-        // 11. 轉換為 CV_32F 格式
+        // 12. 轉換為 CV_32F 格式
         raw16.convertTo(raw32, CV_32F);
         return ErrCode::Ok;
     }
@@ -1077,9 +1086,13 @@ ISP::ErrCode ISP::normalizeExposureByP50(cv::Mat& img_float, float Target_P50) {
             return ErrCode::Ok;
         }
 
+        // 1. 定義 ISP 相機系統的黑階/噪點底限 (例如 12-bit Raw 轉 float 後的最低有效訊號)
+        const float NOISE_FLOOR = 1e-4f; // 相當於 0.0001 (約 10-bit 下的 0.4 LSB)
+        const float MIN_VALID_DYNAMIC_RANGE = 1e-3f; // 低於此動態範圍視為極度低曝光場景
+
         // 自適應估算當前影像 [P5, P95] 動態範圍
-        size_t p5_idx = sample_pixels.size() * 0.05;
-        size_t p95_idx = sample_pixels.size() * 0.95;
+        size_t p5_idx = static_cast<size_t>(sample_pixels.size() * 0.05);
+        size_t p95_idx = static_cast<size_t>(sample_pixels.size() * 0.95);
 
         std::nth_element(sample_pixels.begin(), sample_pixels.begin() + p5_idx, sample_pixels.end());
         float p5_val = sample_pixels[p5_idx];
@@ -1088,18 +1101,33 @@ ISP::ErrCode ISP::normalizeExposureByP50(cv::Mat& img_float, float Target_P50) {
         float p95_val = sample_pixels[p95_idx];
 
         float dynamic_range = p95_val - p5_val;
-        float relative_dark_thresh = p5_val + 0.05f * dynamic_range;
-        float relative_bright_thresh = p5_val + 0.90f * dynamic_range;
 
         std::vector<float> valid_pixels;
         valid_pixels.reserve(sample_pixels.size());
 
-        for (float val : sample_pixels) {
-            if (dynamic_range <= 1e-7f || (val >= relative_dark_thresh && val <= relative_bright_thresh)) {
-                valid_pixels.push_back(val);
+        // 2. 判斷是否為「正常曝光」還是「極低曝光/平坦場景」
+        if (dynamic_range >= MIN_VALID_DYNAMIC_RANGE) {
+            // 正常場景：執行相對邊界裁切 (剔除極端高光與極端死暗)
+            float relative_dark_thresh = p5_val + 0.05f * dynamic_range;
+            float relative_bright_thresh = p5_val + 0.90f * dynamic_range;
+
+            for (float val : sample_pixels) {
+                if (val >= relative_dark_thresh && val <= relative_bright_thresh) {
+                    valid_pixels.push_back(val);
+                }
+            }
+        }
+        else {
+            // 極低曝光場景 (例如 P95 = 0.00196)：
+            // 放寬門檻，只過濾低於 Noise Floor 的純黑/噪點像素，保留真實微弱訊號
+            for (float val : sample_pixels) {
+                if (val > NOISE_FLOOR) {
+                    valid_pixels.push_back(val);
+                }
             }
         }
 
+        // 3. 計算 P50 (Median)
         float p50_val = 0.0f;
         if (!valid_pixels.empty()) {
             size_t mid_idx = valid_pixels.size() / 2;
@@ -1107,44 +1135,49 @@ ISP::ErrCode ISP::normalizeExposureByP50(cv::Mat& img_float, float Target_P50) {
             p50_val = valid_pixels[mid_idx];
         }
         else {
-            size_t p50_idx = sample_pixels.size() * 0.50;
+            // 若連 valid_pixels 都空了（全圖近乎純黑），直接取原始採樣的 P50
+            size_t p50_idx = static_cast<size_t>(sample_pixels.size() * 0.50);
             std::nth_element(sample_pixels.begin(), sample_pixels.begin() + p50_idx, sample_pixels.end());
             p50_val = sample_pixels[p50_idx];
         }
 
-        if (p50_val <= 1e-7f) {
-            return ErrCode::Ok;
-        }
+        // 4. 低曝光安全 Gain 計算與保護
+        // 避免 p50_val 為 0 導致除以零，強制給予一個最小可算分母 (NOISE_FLOOR)
+        //float safe_p50 = std::max<float>(p50_val, NOISE_FLOOR);
 
+        // 算出提亮 Gain
         float gain = Target_P50 / p50_val;
-        const float max_allowed_gain = 50.0f;
-        const float min_allowed_gain = 0.01f;
-        gain = std::clamp(gain, min_allowed_gain, max_allowed_gain);
+
+        // 極低曝光下需有明確的 Gain 上限保護，防止把雜訊放大成巨幅斑塊
+        //const float max_allowed_gain = 32.0f; // 依據 ISP 雜訊容忍度設定 (例如 32x / +30dB)
+        //const float min_allowed_gain = 0.01f;
+        //gain = std::clamp(gain, min_allowed_gain, max_allowed_gain);
+
 
         // 乘上 P50 Gain (3 通道或 1 通道皆可直接使用 cv::Mat 的 * 運算符)
         img_float = img_float * gain;
 
-        // =================================================================
-        // STAGE 2: 針對乘上 Gain 後的影像進行 99% 百分位數 Normalization
-        // =================================================================
-        double stage2_low = 0.0, stage2_p99 = 0.0;
-        CalLowHigh(img_float, stage2_low, stage2_p99);
+        //// =================================================================
+        //// STAGE 2: 針對乘上 Gain 後的影像進行 99% 百分位數 Normalization
+        //// =================================================================
+        //double stage2_low = 0.0, stage2_p99 = 0.0;
+        //CalLowHigh(img_float, stage2_low, stage2_p99);
 
-        // 將 [0, P99] 歸一化到 [0, 1.0]
-        if (stage2_p99 > 1e-6) {
-            img_float = img_float / static_cast<float>(stage2_p99);
-        }
+        //// 將 [0, P99] 歸一化到 [0, 1.0]
+        ////if (stage2_p99 > 1e-6) {
+        ////    img_float = img_float / static_cast<float>(stage2_p99);
+        ////}
 
-        // =================================================================
-        // STAGE 3: 執行最終 1% ~ 99% Min-Max Contrast Normalization
-        // =================================================================
-        double final_p1 = 0.0, final_p99 = 1.0;
-        CalLowHigh(img_float, final_p1, final_p99);
+        //// =================================================================
+        //// STAGE 3: 執行最終 1% ~ 99% Min-Max Contrast Normalization
+        //// =================================================================
+        //double final_p1 = 0.0, final_p99 = 1.0;
+        //CalLowHigh(img_float, final_p1, final_p99);
 
-        double range_span = final_p99 - final_p1;
-        if (range_span > 1e-6) {
-            img_float = (img_float - final_p1) / range_span;
-        }
+        //double range_span = final_p99 - final_p1;
+        //if (range_span > 1e-6) {
+        //    img_float = (img_float - final_p1) / range_span;
+        //}
 
         // 最終邊界安全裁切 [0.0, 1.0]
         cv::threshold(img_float, img_float, 0.0, 0.0, cv::THRESH_TOZERO);

@@ -309,6 +309,7 @@ namespace ISP_Comparision
                         out float[] pre_mul,
                         out ISP_Mat cam_xyz,
                         out ISP_Mat xyz_srgb,
+                        out ISP_Mat cam_rgb,
                         out Output_Channel);
                     if (ec != ISP_ErrCode.Ok)
                     {
@@ -423,14 +424,14 @@ namespace ISP_Comparision
                     switch (obj)
                     {
                         case enumColorCorrection.Default:
-                            ISP_ErrCode ccmEc = isp.CalculateCCM(ref xyz_srgb, ref cam_xyz, out ISP_Mat ccm);
-                            if (ccmEc != ISP_ErrCode.Ok)
-                            {
-                                ErrMsg = $"CCM calculation failed: {ccmEc}";
-                                return ErrCode;
-                            }
+                            //ISP_ErrCode ccmEc = isp.CalculateCCM(ref xyz_srgb, ref cam_xyz, out ISP_Mat ccm);
+                            //if (ccmEc != ISP_ErrCode.Ok)
+                            //{
+                            //    ErrMsg = $"CCM calculation failed: {ccmEc}";
+                            //    return ErrCode;
+                            //}
 
-                            ec = isp.ColorCorrection(ref Output_Color, ref ccm, out Output_Color);
+                            ec = isp.ColorCorrection(ref Output_Color, ref cam_rgb, out Output_Color);
                             if (ec != ISP_ErrCode.Ok)
                             {
                                 ErrMsg = $"Color correction failed: {ec}";
