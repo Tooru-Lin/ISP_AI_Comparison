@@ -1,22 +1,27 @@
-#include "isp.h"
+﻿#include "isp.h"
 #include <iostream>
 #include <vector>
 #include <string>
 #include <fstream>
 #include <opencv2/opencv.hpp>
+#include <windows.h>
+#include <iostream>
 
 void printMat(const cv::Mat& m, const std::string& name);
-
+void DiagnosticCheck();
 
 int main() {
+
+    //DiagnosticCheck();
 
     std::string path = "C:/Users/eevo1/OneDrive/Desktop/ISP_AI_Comparison/data/raw/Sony/Sony/short/00001_00_0.04s.ARW";
     //std::string path = "C:/Users/eevo1/OneDrive/Desktop/ISP_AI_Comparison/data/raw/Sony/Sony/long/00001_00_10s.ARW";
 
-    // �ҫ��Ҧb��Ƨ� (�Юھڹ�ڸ��|�վ�)
+    // 模型所在資料夾 (請根據實際路徑調整)
     std::string ModelDir = "C:/Users/eevo1/OneDrive/Desktop/ISP_AI_Comparison/models";
 
-    ISP isp; // stack �W�ЫءA�I�s�غc�l
+
+    ISP isp; // stack 上創建，呼叫建構子
 
     int black, white, width, height;
     std::vector<float> cam_mul;
@@ -24,15 +29,15 @@ int main() {
     cv::Mat cam_xyz, xyz_srgb;
     cv::Mat raw32;
 
-    // �ϥ� ErrCode �^��
+    // 使用 ErrCode 回傳
     ISP::ErrCode ec = isp.loadRawWithLibRaw(path,
         width,
         height,
-        black,                      // ��X�¶�
-        white,                      // ��X�ն�
+        black,                      // 輸出黑階
+        white,                      // 輸出白階
         cam_mul,                    // AWB before demosaic
         pre_mul,                    // AWB after demosaic
-        cam_xyz,                    // ��X 3x3 �۾���XYZ �x�}
+        cam_xyz,                    // 輸出 3x3 相機→XYZ 矩陣
         xyz_srgb,
         raw32);
 
@@ -41,8 +46,8 @@ int main() {
         return -1;
     }
 
-    // raw32 �w�� CV_32F
-    // �� raw
+    // raw32 已為 CV_32F
+    // 原 raw
     double scale = 0.5;
     isp.showPreview(raw32, "Origin", scale);
 
@@ -50,7 +55,7 @@ int main() {
 
     if (isp.getParamBool("DoWhiteBlackLevel"))
     {
-        // �չq���ե�
+        // 白電平校正
         ec = isp.BlackAndWhiteLevelCorrection(raw32, black, white);
         if (ec != ISP::ErrCode::Ok) {
             std::cerr << "BlackAndWhiteLevelCorrection failed with ErrCode=" << static_cast<int>(ec) << std::endl;
@@ -61,41 +66,38 @@ int main() {
 
 
     //......................................................................................................//
-    // �ե���
+    // 白平衡
 
     if (isp.getParamBool("DoAWB"))
     {
         double gain_R = 0;
         double gain_G = 0;
         double gain_B = 0;
-        cv::Mat bgr32_tmp; // �b switch �~��l��
+        cv::Mat bgr32_tmp; // 在 switch 外初始化
 
         switch (isp.getParamAWB())
         {
-        case ISP::AWB_Method::Default:
-        {
-            float g_ref = cam_mul[1]; // choose G as reference
-            gain_R = cam_mul[0] / g_ref; // R
-            gain_G = cam_mul[1] / g_ref; // G (first G)
-            gain_G = cam_mul[1] / g_ref; // second G (depends on ordering)
-            gain_B = cam_mul[2] / g_ref; // B
+            case ISP::AWB_Method::Default:
+            {
+                float g_ref = cam_mul[1]; // choose G as reference
+                gain_R = cam_mul[0] / g_ref; // R
+                gain_G = cam_mul[1] / g_ref; // G (first G)
+                gain_G = cam_mul[1] / g_ref; // second G (depends on ordering)
+                gain_B = cam_mul[2] / g_ref; // B
 
-            ec = isp.ApplyAWBGain(raw32, height, width, gain_R, gain_G, gain_B);
-            if (ec != ISP::ErrCode::Ok) {
-                std::cerr << "ApplyAWBGain failed with ErrCode=" << static_cast<int>(ec) << std::endl;
+                ec = isp.ApplyAWBGain(raw32, height, width, gain_R, gain_G, gain_B);
+                if (ec != ISP::ErrCode::Ok) {
+                    std::cerr << "ApplyAWBGain failed with ErrCode=" << static_cast<int>(ec) << std::endl;
+                }
+
+                isp.showPreview(raw32, "AWB (Default)", scale);
             }
-
-            isp.showPreview(raw32, "AWB (Default)", scale);
-        }
-        break;
-        case ISP::AWB_Method::GrayWorld:
-        {
-            // �� Demosaic ��� RBG Gain
-            ec = isp.demosaic(raw32, bgr32_tmp);
-            if (ec == ISP::ErrCode::Ok) {
-                ec = isp.CalAWBGain_GrayWorld(bgr32_tmp, gain_R, gain_G, gain_B);
+            break;
+            case ISP::AWB_Method::GrayWorld:
+            {
+                ec = isp.CalAWBGain_GrayWorld(raw32, gain_R, gain_G, gain_B);
                 if (ec == ISP::ErrCode::Ok) {
-                    // �M�� RBG Gain 
+                    // 套用 RBG Gain 
                     ec = isp.ApplyAWBGain(raw32, height, width, gain_R, gain_G, gain_B);
                     if (ec == ISP::ErrCode::Ok) {
                         isp.showPreview(raw32, "AWB (Gray World)", scale);
@@ -108,20 +110,13 @@ int main() {
                     std::cerr << "CalAWBGain_GrayWorld failed with ErrCode=" << static_cast<int>(ec) << std::endl;
                 }
             }
-            else {
-                std::cerr << "Demosaic failed for GrayWorld AWB with ErrCode=" << static_cast<int>(ec) << std::endl;
-            }
-        }
-        break;
+            break;
 
-        case ISP::AWB_Method::WhitePoint:
-        {
-            // �� Demosaic ��� RBG Gain
-            ec = isp.demosaic(raw32, bgr32_tmp);
-            if (ec == ISP::ErrCode::Ok) {
-                ec = isp.CalAWBGain_WhitePatch(bgr32_tmp, gain_R, gain_G, gain_B);
+            case ISP::AWB_Method::WhitePoint:
+            {
+                ec = isp.CalAWBGain_WhitePatch(raw32, gain_R, gain_G, gain_B);
                 if (ec == ISP::ErrCode::Ok) {
-                    // �M�� RBG Gain 
+                    // 套用 RBG Gain 
                     ec = isp.ApplyAWBGain(raw32, height, width, gain_R, gain_G, gain_B);
                     if (ec == ISP::ErrCode::Ok) {
                         isp.showPreview(raw32, "AWB (White Patch)", scale);
@@ -134,11 +129,7 @@ int main() {
                     std::cerr << "CalAWBGain_WhitePatch failed with ErrCode=" << static_cast<int>(ec) << std::endl;
                 }
             }
-            else {
-                std::cerr << "Demosaic failed for WhitePoint AWB with ErrCode=" << static_cast<int>(ec) << std::endl;
-            }
-        }
-        break;
+            break;
         default:
             break;
         }
@@ -148,9 +139,9 @@ int main() {
     //......................................................................................................//
 
 
-    // �h���ɧJ (Demosaic)
+    // 去馬賽克 (Demosaic)
     cv::Mat bgr32;
-    if (isp.getParamBool("DoDemosaic") && isp.getParamDemosaic() == ISP::Demosaic_Method::CCM)
+    if (isp.getParamBool("DoDemosaic") && isp.getParamDemosaic() == ISP::Demosaic_Method::Default)
     {
         ec = isp.demosaic(raw32, bgr32);
         if (ec != ISP::ErrCode::Ok) {
@@ -162,8 +153,8 @@ int main() {
     }
     else if (isp.getParamBool("DoDemosaic") && isp.getParamDemosaic() == ISP::Demosaic_Method::AI)
     {
-        // �ϥμз� C++ �r������A���ˬd�ɮ׬O�_�s�b
-        std::string modelPath = ModelDir + "/model_raw.onnx";
+        // 使用標準 C++ 字串拼接，並檢查檔案是否存在
+        std::string modelPath = ModelDir + "/model_fp16.onnx";
         std::ifstream mf(modelPath.c_str());
         if (!mf.good()) {
             std::cerr << "AI model not found: " << modelPath << std::endl;
@@ -183,7 +174,7 @@ int main() {
     //......................................................................................................//
 
 
-    // ��m�ե�
+    // 色彩校正
     if (isp.getParamBool("DoCCM"))
     {
         cv::Mat ccm = xyz_srgb * cam_xyz;
@@ -205,9 +196,21 @@ int main() {
 
 
     //......................................................................................................//
+    // 曝光正規化(P50)
+
+    isp.normalizeExposureByP50(bgr32, 0.18);
+    if (ec != ISP::ErrCode::Ok) {
+        std::cerr << "normalizeExposureByP50 failed with ErrCode=" << static_cast<int>(ec) << std::endl;
+    }
+    cv::threshold(bgr32, bgr32, 0.0, 0.0, cv::THRESH_TOZERO); // clip <0
+    cv::threshold(bgr32, bgr32, 1.0, 1.0, cv::THRESH_TRUNC);  // clip >1
+    isp.showPreview(bgr32, "Tone Mapping", scale);
 
 
-    // ��լM�g
+    //......................................................................................................//
+
+
+    // 色調映射
     if (isp.getParamBool("DoGamma"))
     {
         ec = isp.applyToneMapping(bgr32, 1.8f);
@@ -222,7 +225,7 @@ int main() {
 
     //......................................................................................................//
 
-    // �U��
+    // 銳化
 
     if (isp.getParamBool("DoSharpen"))
     {
@@ -242,7 +245,7 @@ int main() {
 
     //cv::Mat rgb8bit;
     //bgr32.convertTo(rgb8bit, CV_8U, 255.0);
-    //// �x�s��X
+    //// 儲存輸出
     //cv::imwrite("output.png", rgb8bit);
 
 
@@ -258,4 +261,37 @@ void printMat(const cv::Mat& m, const std::string& name) {
         }
         std::cout << std::endl;
     }
+}
+
+void DiagnosticCheck() {
+    std::cout << "=== ONNX Runtime Dynamic Load Diagnostic ===" << std::endl;
+
+    // 1. 檢查核心 ONNX DLL
+    HMODULE hOrt = LoadLibraryA("onnxruntime.dll");
+    if (!hOrt) {
+        std::cout << "❌ 失敗: 找不到 onnxruntime.dll (錯誤碼: " << GetLastError() << ")" << std::endl;
+        return;
+    }
+    std::cout << "✅ onnxruntime.dll 載入成功！" << std::endl;
+
+    // 2. 測試 CUDA Provider 載入 (這一步是 Ort::GetApi 崩潰的根源)
+    HMODULE hCuda = LoadLibraryA("onnxruntime_providers_cuda.dll");
+    if (!hCuda) {
+        DWORD err = GetLastError();
+        std::cout << "❌ 失敗: onnxruntime_providers_cuda.dll 載入失敗！" << std::endl;
+        std::cout << "❌ 錯誤碼 (Windows Error Code): " << err << std::endl;
+
+        if (err == 126) {
+            std::cout << "👉 [錯誤分析 126]: 系統找不到必要的 CUDA / cuDNN / Visual C++ 相依 DLL！" << std::endl;
+        }
+        else if (err == 193) {
+            std::cout << "👉 [錯誤分析 193]: DLL 架構不匹配 (例如 32 位元 vs 64 位元，或 x64 vs ARM64)！" << std::endl;
+        }
+    }
+    else {
+        std::cout << "✅ CUDA Provider 載入成功！CUDA 環境完全正常！" << std::endl;
+        FreeLibrary(hCuda);
+    }
+    FreeLibrary(hOrt);
+    std::cout << "============================================" << std::endl;
 }

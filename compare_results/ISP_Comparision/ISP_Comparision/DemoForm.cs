@@ -6,6 +6,7 @@ using System.Drawing;
 using System.Drawing.Imaging;
 using System.IO;
 using System.Linq;
+using System.Reflection;
 using System.Runtime.InteropServices;
 using System.Windows.Forms;
 
@@ -27,6 +28,7 @@ namespace ISP_Comparision
         public DemoForm()
         {
             InitializeComponent();
+
             // 如果 ComboBox 只有一個選項，將其停用但顯示該選項（SelectedIndex = 0）
             // 若沒有選項，新增 "None" 並停用（SelectedIndex = 0）
             DisableSingleItemComboBoxes();
@@ -41,6 +43,9 @@ namespace ISP_Comparision
 
             viewer1 = ImageBoxViewer.Attach(pbDisplay1);
             viewer2 = ImageBoxViewer.Attach(pbDisplay2);
+
+            // 自動讀取 Assembly 版本號並設定視窗標題
+            SetAutoVersionTitle("ISP Comparison");
         }
 
         // 遞迴檢查所有子控制項，若為 ComboBox 則依 Items 數量處理：
@@ -77,7 +82,7 @@ namespace ISP_Comparision
                         else
                         {
                             // 有多於一個選項，啟用並預設選第一個
-                            cb.Enabled = true;
+                            //cb.Enabled = true;
                             if (cb.SelectedIndex < 0) cb.SelectedIndex = 0;
                         }
                     }
@@ -192,7 +197,7 @@ namespace ISP_Comparision
             {
                 string rawPath = originalImagePath;
 
-                mController1.Measure(originalImagePath, out ISP_Mat Output_Color, out ISP_Mat Output_Channel);
+                mController1.Measure(originalImagePath, out ISP_Mat Output_Color, out ISP_Mat Output_Channel, (float)nud_P50.Value);
 
                 // 先 dispose/clear 由 viewer 處理
                 if (Output_Color.data != IntPtr.Zero)
@@ -218,7 +223,7 @@ namespace ISP_Comparision
             {
                 string rawPath = originalImagePath;
 
-                mController2.Measure(originalImagePath, out ISP_Mat Output_Color, out ISP_Mat Output_Channel);
+                mController2.Measure(originalImagePath, out ISP_Mat Output_Color, out ISP_Mat Output_Channel, (float)nud_P50.Value);
 
                 // 先 dispose/clear 由 viewer 處理
                 if (Output_Color.data != IntPtr.Zero)
@@ -488,6 +493,7 @@ namespace ISP_Comparision
             
             cb.SelectedIndex = (cb.Items.Count > 0) ? 1 : 0;
 
+            if (!cb.Enabled) cb.SelectedIndex = 0; // 如果 ComboBox 被停用，選擇第一個項目（通常是 "None"）
 
             // 使用 Tag 存放對應資訊： (PipelineKey, enumType)
             cb.Tag = new Tuple<PipelineKey, Type>(key, enumType);
@@ -614,9 +620,109 @@ namespace ISP_Comparision
             public double TonePeak { get; set; }
         }
 
-        private void cbTone1_SelectedIndexChanged(object sender, EventArgs e)
-        {
+        //private void CopyModelsFromSolutionToExe()
+        //{
+        //    // 嘗試向上尋找 .sln 檔案
+        //    var solutionDir = FindSolutionRoot();
+        //    if (solutionDir == null) return;
 
+        //    string modelsSource = Path.Combine(solutionDir.FullName, "ISP_Comparision", "models");
+        //    if (!Directory.Exists(modelsSource)) return;
+
+        //    string exeDir = AppDomain.CurrentDomain.BaseDirectory;
+        //    // 遞迴複製
+        //    CopyDirectoryRecursive(modelsSource, exeDir);
+        //}
+
+        //private DirectoryInfo FindSolutionRoot()
+        //{
+        //    DirectoryInfo dir = new DirectoryInfo(AppDomain.CurrentDomain.BaseDirectory);
+        //    while (dir != null)
+        //    {
+        //        try
+        //        {
+        //            var slnFiles = dir.GetFiles("*.sln", SearchOption.TopDirectoryOnly);
+        //            if (slnFiles != null && slnFiles.Length > 0)
+        //            {
+        //                return dir;
+        //            }
+        //        }
+        //        catch
+        //        {
+        //            // 忽略無權限或 IO 問題
+        //        }
+        //        dir = dir.Parent;
+        //    }
+        //    return null;
+        //}
+
+        //private void CopyDirectoryRecursive(string sourceDir, string targetDir)
+        //{
+        //    // 建立 target 子目錄 models/* 保持結構
+        //    foreach (var dirPath in Directory.GetDirectories(sourceDir, "*", SearchOption.AllDirectories))
+        //    {
+        //        string relative = GetRelativePathCompat(sourceDir, dirPath);
+        //        string destSub = Path.Combine(targetDir, relative);
+        //        if (!Directory.Exists(destSub)) Directory.CreateDirectory(destSub);
+        //    }
+
+        //    foreach (var filePath in Directory.GetFiles(sourceDir, "*", SearchOption.AllDirectories))
+        //    {
+        //        string relative = GetRelativePathCompat(sourceDir, filePath);
+        //        string destPath = Path.Combine(targetDir, relative);
+
+        //        try
+        //        {
+        //            string destFolder = Path.GetDirectoryName(destPath);
+        //            if (!Directory.Exists(destFolder)) Directory.CreateDirectory(destFolder);
+        //            File.Copy(filePath, destPath, true); // overwrite
+        //        }
+        //        catch (Exception ex)
+        //        {
+        //            // 不中斷流程，記錄偵錯資訊
+        //            System.Diagnostics.Debug.WriteLine($"Copy file failed: {filePath} -> {destPath} : {ex.Message}");
+        //        }
+        //    }
+        //}
+
+        //private string GetRelativePathCompat(string basePath, string path)
+        //{
+        //    if (string.IsNullOrEmpty(basePath)) return path ?? string.Empty;
+        //    if (string.IsNullOrEmpty(path)) return string.Empty;
+
+        //    // 取得絕對路徑
+        //    string baseFull = Path.GetFullPath(basePath);
+        //    string targetFull = Path.GetFullPath(path);
+
+        //    // 確保 baseFull 以目錄分隔符結尾，否則 MakeRelativeUri 行為會不正確
+        //    if (!baseFull.EndsWith(Path.DirectorySeparatorChar.ToString(), StringComparison.Ordinal))
+        //        baseFull += Path.DirectorySeparatorChar;
+
+        //    var baseUri = new Uri(baseFull);
+        //    var targetUri = new Uri(targetFull);
+        //    var relUri = baseUri.MakeRelativeUri(targetUri);
+        //    // Uri 會用 '/'，轉回平台分隔符
+        //    string relative = Uri.UnescapeDataString(relUri.ToString()).Replace('/', Path.DirectorySeparatorChar);
+        //    return relative;
+        //}
+
+        private void SetAutoVersionTitle(string baseTitle)
+        {
+            // 讀取當前 Assembly 的版本號 (Major.Minor.Build.Revision)
+            Version version = Assembly.GetExecutingAssembly().GetName().Version;
+
+            if (version != null)
+            {
+                // 格式化為 Major.Minor.Build.Revision (如: 0.0.6.0902)
+                string verStr = $"{version.Major}.{version.Minor}.{version.Build}.{version.Revision}";
+
+                // 動態組合標題
+                this.Text = $"{baseTitle} (Ver. {verStr})";
+            }
+            else
+            {
+                this.Text = baseTitle;
+            }
         }
     }
 }

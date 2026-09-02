@@ -1,6 +1,5 @@
-#include "isp.h"
+ï»¿#include "isp.h"
 #include <opencv2/opencv.hpp>
-#include <opencv2/dnn.hpp>
 #include <libraw/libraw.h>
 #include <iostream>
 #include <algorithm>
@@ -8,46 +7,48 @@
 #include <vector>
 #include <functional>
 #include <filesystem>
+#include <onnxruntime_cxx_api.h>
+#include <algorithm>
 
-// ¦b includes ¤§«á¥[¤J¡]¾aªñÀÉ®×³»ºİ¡^
+// åœ¨ includes ä¹‹å¾ŒåŠ å…¥ï¼ˆé è¿‘æª”æ¡ˆé ‚ç«¯ï¼‰
 static void CalLowHigh(const cv::Mat& img, double& lowVal, double& highVal);
-// ¨ú«e´X¤j§¡­È
+// å–å‰å¹¾å¤§å‡å€¼
 static double getBiggestMean(const cv::Mat& channel, double ratio = 0.05);
 
 // ========================================
-// ¥\¯à¡G±q RAW ÀÉ®×¥[¸ü¼v¹³¨Ã´£¨ú¤¸¼Æ¾Ú
-// ¿é¤J°Ñ¼Æ¡G
-//   - filename: RAW ÀÉ®×¸ô®|
-// ¿é¥X°Ñ¼Æ¡G
-//   - width, height: ¼v¹³¤Ø¤o
-//   - black, white: ¶Â¶¥¡B¥Õ¶¥
-//   - cam_mul, pre_mul: AWB ¼W¯q«Y¼Æ
-//   - cam_xyz: ¬Û¾÷ RGB¡÷XYZ ¯x°}
-//   - xyz2srgb: XYZ¡÷sRGB ¯x°}
-//   - raw32: Âà´««áªº 32-bit float ­ì©l¼v¹³
-// ¦^¶Ç¡G
-//   - ErrCode::Ok ¦¨¥\
-//   - ErrCode::FileOpenFailed ÀÉ®×¶}±Ò¥¢±Ñ
-//   - ErrCode::UnpackFailed ¸Ñ¥]¥¢±Ñ
-//   - ErrCode::EmptyImage ¼v¹³¬°ªÅ
-//   - ErrCode::Exception ¨Ò¥~µo¥Í
-//   - ErrCode::Unknown ¥¼ª¾¿ù»~
+// åŠŸèƒ½ï¼šå¾ RAW æª”æ¡ˆåŠ è¼‰å½±åƒä¸¦æå–å…ƒæ•¸æ“š
+// è¼¸å…¥åƒæ•¸ï¼š
+//   - filename: RAW æª”æ¡ˆè·¯å¾‘
+// è¼¸å‡ºåƒæ•¸ï¼š
+//   - width, height: å½±åƒå°ºå¯¸
+//   - black, white: é»‘éšã€ç™½éš
+//   - cam_mul, pre_mul: AWB å¢ç›Šä¿‚æ•¸
+//   - cam_xyz: ç›¸æ©Ÿ RGBâ†’XYZ çŸ©é™£
+//   - xyz2srgb: XYZâ†’sRGB çŸ©é™£
+//   - raw32: è½‰æ›å¾Œçš„ 32-bit float åŸå§‹å½±åƒ
+// å›å‚³ï¼š
+//   - ErrCode::Ok æˆåŠŸ
+//   - ErrCode::FileOpenFailed æª”æ¡ˆé–‹å•Ÿå¤±æ•—
+//   - ErrCode::UnpackFailed è§£åŒ…å¤±æ•—
+//   - ErrCode::EmptyImage å½±åƒç‚ºç©º
+//   - ErrCode::Exception ä¾‹å¤–ç™¼ç”Ÿ
+//   - ErrCode::Unknown æœªçŸ¥éŒ¯èª¤
 // ========================================
 ISP::ErrCode ISP::loadRawWithLibRaw(
     const std::string& filename,
     int& width,
     int& height,
-    int& black,                      // ¿é¥X¶Â¶¥
-    int& white,                      // ¿é¥X¥Õ¶¥
-    std::vector<float>& cam_mul,     // ¿é¥X AWB gains
-    std::vector<float>& pre_mul,     // ¿é¥X AWB gains
-    cv::Mat& cam_xyz,                // ¿é¥X 3x3 ¬Û¾÷¡÷XYZ ¯x°}
-    cv::Mat& xyz2srgb,               // ¿é¥X 3x3 XYZ¡÷sRGB ¯x°}
-    cv::Mat& raw32                   // ¿é¥X raw 32F
+    int& black,                      // è¼¸å‡ºé»‘éš
+    int& white,                      // è¼¸å‡ºç™½éš
+    std::vector<float>& cam_mul,     // è¼¸å‡º AWB gains
+    std::vector<float>& pre_mul,     // è¼¸å‡º AWB gains
+    cv::Mat& cam_xyz,                // è¼¸å‡º 3x3 ç›¸æ©Ÿâ†’XYZ çŸ©é™£
+    cv::Mat& xyz2srgb,               // è¼¸å‡º 3x3 XYZâ†’sRGB çŸ©é™£
+    cv::Mat& raw32                   // è¼¸å‡º raw 32F
 )
 {
     try {
-        // 1. «Ø¥ß LibRaw ³B²z¾¹
+        // 1. å»ºç«‹ LibRaw è™•ç†å™¨
         LibRaw RawProcessor;
         int ret = RawProcessor.open_file(filename.c_str());
         if (ret != LIBRAW_SUCCESS) {
@@ -55,14 +56,14 @@ ISP::ErrCode ISP::loadRawWithLibRaw(
             return ErrCode::FileOpenFailed;
         }
 
-        // 2. ¸Ñ¥] RAW ¼Æ¾Ú
+        // 2. è§£åŒ… RAW æ•¸æ“š
         ret = RawProcessor.unpack();
         if (ret != LIBRAW_SUCCESS) {
             std::cerr << "Cannot unpack raw data: " << libraw_strerror(ret) << std::endl;
             return ErrCode::UnpackFailed;
         }
 
-        // 3. Åª¨ú¨Ã¥´¦L CFA ¸ê°T
+        // 3. è®€å–ä¸¦æ‰“å° CFA è³‡è¨Š
         std::cout << "CFA description: "
             << RawProcessor.imgdata.idata.cdesc << std::endl;
 
@@ -80,16 +81,16 @@ ISP::ErrCode ISP::loadRawWithLibRaw(
             std::cout << std::endl;
         }
 
-        // 4. Åª¨ú¼v¹³¤Ø¤o
+        // 4. è®€å–å½±åƒå°ºå¯¸
         int raw_width = RawProcessor.imgdata.sizes.raw_width;
         int raw_height = RawProcessor.imgdata.sizes.raw_height;
-        width = RawProcessor.imgdata.sizes.width;  // ¦³®Ä¼e«×
-        height = RawProcessor.imgdata.sizes.height;  // ¦³®Ä°ª«×
+        width = RawProcessor.imgdata.sizes.width;  // æœ‰æ•ˆå¯¬åº¦
+        height = RawProcessor.imgdata.sizes.height;  // æœ‰æ•ˆé«˜åº¦
 
-        int left = (raw_width - width) / 2;  // ¶}©l¦C
-        int top = (raw_height - height) / 2;  // ¶}©l¦æ
+        int left = (raw_width - width) / 2;  // é–‹å§‹åˆ—
+        int top = (raw_height - height) / 2;  // é–‹å§‹è¡Œ
 
-        // 5. ³Ğ«Ø 16-bit Mat ¨Ã«ş¨©¦³®Ä°Ï°ì
+        // 5. å‰µå»º 16-bit Mat ä¸¦æ‹·è²æœ‰æ•ˆå€åŸŸ
         cv::Mat raw16(height, width, CV_16U);
         for (int y = 0; y < height; y++) {
             memcpy(raw16.ptr<ushort>(y),
@@ -97,12 +98,12 @@ ISP::ErrCode ISP::loadRawWithLibRaw(
                 width * sizeof(ushort));
         }
 
-        // 6. Åª¨ú metadata (¶Â¶¥¡B¥Õ¶¥¡BWB«Y¼Æ...)
+        // 6. è®€å– metadata (é»‘éšã€ç™½éšã€WBä¿‚æ•¸...)
         libraw_data_t* raw = &RawProcessor.imgdata;
         black = raw->color.black;
         white = raw->color.maximum;
 
-        // 7. ´£¨ú¥Õ¥­¿Å«Y¼Æ
+        // 7. æå–ç™½å¹³è¡¡ä¿‚æ•¸
         cam_mul.resize(4);
         pre_mul.resize(4);
         for (int i = 0; i < 4; i++) {
@@ -110,7 +111,7 @@ ISP::ErrCode ISP::loadRawWithLibRaw(
             pre_mul[i] = raw->color.pre_mul[i];
         }
 
-        // 8. ´£¨ú¬Û¾÷ RGB ¡÷ XYZ ¯x°} (3x3)
+        // 8. æå–ç›¸æ©Ÿ RGB â†’ XYZ çŸ©é™£ (3x3)
         cam_xyz = cv::Mat(3, 3, CV_32F);
         for (int i = 0; i < 3; i++) {
             for (int j = 0; j < 3; j++) {
@@ -118,19 +119,19 @@ ISP::ErrCode ISP::loadRawWithLibRaw(
             }
         }
 
-        // 9. ³]©w XYZ ¡÷ sRGB ¯x°}
+        // 9. è¨­å®š XYZ â†’ sRGB çŸ©é™£
         xyz2srgb = (cv::Mat_<float>(3, 3) <<
             3.2406, -1.5372, -0.4986,
             -0.9689, 1.8758, 0.0415,
             0.0557, -0.2040, 1.0570);
 
-        // 10. ¨¾§bÀË¬d
+        // 10. é˜²å‘†æª¢æŸ¥
         if (raw16.empty()) {
             std::cerr << "Failed to load image!" << std::endl;
             return ErrCode::EmptyImage;
         }
 
-        // 11. Âà´«¬° CV_32F ®æ¦¡
+        // 11. è½‰æ›ç‚º CV_32F æ ¼å¼
         raw16.convertTo(raw32, CV_32F);
         return ErrCode::Ok;
     }
@@ -145,21 +146,21 @@ ISP::ErrCode ISP::loadRawWithLibRaw(
 }
 
 // ========================================
-// ¥\¯à¡G®M¥Î pre_mul ¥Õ¥­¿Å«Y¼Æ¨ì¼v¹³
-// ¿é¤J°Ñ¼Æ¡G
-//   - img: ¿é¤J¼v¹³ (CV_32FC3)
-//   - pre_mul: ¥Õ¥­¿Å«Y¼Æ¦V¶q [B, G, R]
-// ¿é¥X°Ñ¼Æ¡G
-//   - img: ­×§ï«áªº¼v¹³
-// ¦^¶Ç¡G
-//   - ErrCode::Ok ¦¨¥\
-//   - ErrCode::InvalidInput ¿é¤J®æ¦¡¤£¤ä´©
-//   - ErrCode::Exception ¨Ò¥~µo¥Í
-//   - ErrCode::Unknown ¥¼ª¾¿ù»~
+// åŠŸèƒ½ï¼šå¥—ç”¨ pre_mul ç™½å¹³è¡¡ä¿‚æ•¸åˆ°å½±åƒ
+// è¼¸å…¥åƒæ•¸ï¼š
+//   - img: è¼¸å…¥å½±åƒ (CV_32FC3)
+//   - pre_mul: ç™½å¹³è¡¡ä¿‚æ•¸å‘é‡ [B, G, R]
+// è¼¸å‡ºåƒæ•¸ï¼š
+//   - img: ä¿®æ”¹å¾Œçš„å½±åƒ
+// å›å‚³ï¼š
+//   - ErrCode::Ok æˆåŠŸ
+//   - ErrCode::InvalidInput è¼¸å…¥æ ¼å¼ä¸æ”¯æ´
+//   - ErrCode::Exception ä¾‹å¤–ç™¼ç”Ÿ
+//   - ErrCode::Unknown æœªçŸ¥éŒ¯èª¤
 // ========================================
 ISP::ErrCode ISP::applyPreMul(cv::Mat& img, const std::vector<float> pre_mul) {
     try {
-        // ¨¾§b¡GÀË¬d¿é¤J®æ¦¡
+        // é˜²å‘†ï¼šæª¢æŸ¥è¼¸å…¥æ ¼å¼
         if (img.empty()) {
             return ErrCode::EmptyImage;
         }
@@ -170,11 +171,11 @@ ISP::ErrCode ISP::applyPreMul(cv::Mat& img, const std::vector<float> pre_mul) {
             return ErrCode::InvalidInput;
         }
 
-        // ©î¦¨³q¹D
+        // æ‹†æˆé€šé“
         std::vector<cv::Mat> channels(3);
         cv::split(img, channels);
 
-        // ®M¥Î«Y¼Æ
+        // å¥—ç”¨ä¿‚æ•¸
         channels[0] *= pre_mul[0]; // B
         channels[1] *= pre_mul[1]; // G
         channels[2] *= pre_mul[2]; // R
@@ -193,36 +194,36 @@ ISP::ErrCode ISP::applyPreMul(cv::Mat& img, const std::vector<float> pre_mul) {
 }
 
 // ========================================
-// ¥\¯à¡G¶Â¥Õ¹q¥­®Õ¥¿¡A±N¼v¹³¥¿³W¤Æ¨ì [0, 1] ½d³ò
-// ¿é¤J°Ñ¼Æ¡G
-//   - raw: ­ì©l¼v¹³¡]·|³Q­×§ï¡^
-//   - black_level: ¶Â¹q¥­
-//   - white_level: ¥Õ¹q¥­
-// ¿é¥X°Ñ¼Æ¡G
-//   - raw: ­×§ï«áªº¥¿³W¤Æ¼v¹³
-// ¦^¶Ç¡G
-//   - ErrCode::Ok ¦¨¥\
-//   - ErrCode::EmptyImage ¼v¹³¬°ªÅ
-//   - ErrCode::Exception ¨Ò¥~µo¥Í
-//   - ErrCode::Unknown ¥¼ª¾¿ù»~
+// åŠŸèƒ½ï¼šé»‘ç™½é›»å¹³æ ¡æ­£ï¼Œå°‡å½±åƒæ­£è¦åŒ–åˆ° [0, 1] ç¯„åœ
+// è¼¸å…¥åƒæ•¸ï¼š
+//   - raw: åŸå§‹å½±åƒï¼ˆæœƒè¢«ä¿®æ”¹ï¼‰
+//   - black_level: é»‘é›»å¹³
+//   - white_level: ç™½é›»å¹³
+// è¼¸å‡ºåƒæ•¸ï¼š
+//   - raw: ä¿®æ”¹å¾Œçš„æ­£è¦åŒ–å½±åƒ
+// å›å‚³ï¼š
+//   - ErrCode::Ok æˆåŠŸ
+//   - ErrCode::EmptyImage å½±åƒç‚ºç©º
+//   - ErrCode::Exception ä¾‹å¤–ç™¼ç”Ÿ
+//   - ErrCode::Unknown æœªçŸ¥éŒ¯èª¤
 // ========================================
 ISP::ErrCode ISP::BlackAndWhiteLevelCorrection(cv::Mat& raw, float black_level, float white_level) {
     try {
-        // ¨¾§b¡GÀË¬d¼v¹³¬O§_¬°ªÅ
+        // é˜²å‘†ï¼šæª¢æŸ¥å½±åƒæ˜¯å¦ç‚ºç©º
         if (raw.empty()) {
             return ErrCode::EmptyImage;
         }
 
-        // 1. ¥ı¦©¶Â¹q¥­
+        // 1. å…ˆæ‰£é»‘é›»å¹³
         raw -= black_level;
 
-        // 2. Âà float ¥H¶i¦æ°£ªk
+        // 2. è½‰ float ä»¥é€²è¡Œé™¤æ³•
         raw.convertTo(raw, CV_32F);
 
-        // 3. ¦A°£¥H (white_level - black_level) ¥H normalize ¨ì 0~1
+        // 3. å†é™¤ä»¥ (white_level - black_level) ä»¥ normalize åˆ° 0~1
         raw = raw / (white_level - black_level);
 
-        // 4. clip ¨ì 0~1 ½d³ò
+        // 4. clip åˆ° 0~1 ç¯„åœ
         cv::threshold(raw, raw, 0.0, 0.0, cv::THRESH_TOZERO); // clip <0
         cv::threshold(raw, raw, 1.0, 1.0, cv::THRESH_TRUNC);  // clip >1
 
@@ -238,46 +239,178 @@ ISP::ErrCode ISP::BlackAndWhiteLevelCorrection(cv::Mat& raw, float black_level, 
     }
 }
 
+//// ========================================
+//// åŠŸèƒ½ï¼šç™½å¹³è¡¡å¢ç›Šè¨ˆç®— - Gray World æ–¹æ³•
+//// èªªæ˜ï¼šå‡è¨­å ´æ™¯å¹³å‡é¡è‰²ç‚ºç°è‰²ï¼Œè¨ˆç®—ä½¿å„é€šé“å¹³å‡å€¼ç›¸ç­‰çš„å¢ç›Š
+//// è¼¸å…¥åƒæ•¸ï¼š
+////   - img: BGR å½©è‰²å½±åƒ (CV_32F)
+//// è¼¸å‡ºåƒæ•¸ï¼š
+////   - gain_R, gain_G, gain_B: è¨ˆç®—å‡ºçš„ RGB å¢ç›Š
+//// å›å‚³ï¼š
+////   - ErrCode::Ok æˆåŠŸ
+////   - ErrCode::EmptyImage å½±åƒç‚ºç©º
+////   - ErrCode::InvalidInput å½±åƒæ ¼å¼ä¸æ”¯æ´
+////   - ErrCode::Exception ä¾‹å¤–ç™¼ç”Ÿ
+////   - ErrCode::Unknown æœªçŸ¥éŒ¯èª¤
+//// ========================================
+//ISP::ErrCode ISP::CalAWBGain_GrayWorld(const cv::Mat& img, double& gain_R, double& gain_G, double& gain_B) {
+//    try {
+//        // é˜²å‘†ï¼šæª¢æŸ¥è¼¸å…¥
+//        if (img.empty()) {
+//            return ErrCode::EmptyImage;
+//        }
+//        if (img.depth() != CV_32F || img.channels() != 3) {
+//            return ErrCode::InvalidInput;
+//        }
+//
+//        // è¤‡è£½ä¸¦ç¢ºä¿ç‚º CV_32F
+//        cv::Mat img32F;
+//        img.convertTo(img32F, CV_32F);
+//
+//        // æ‹†æˆé€šé“
+//        std::vector<cv::Mat> channels(3);
+//        cv::split(img32F, channels);
+//
+//        // è¨ˆç®—å„é€šé“å¹³å‡å€¼
+//        double meanR = cv::mean(channels[2])[0];
+//        double meanG = cv::mean(channels[1])[0];
+//        double meanB = cv::mean(channels[0])[0];
+//        double meanGray = (meanR + meanG + meanB) / 3.0;
+//
+//        // è¨ˆç®—å¢ç›Š
+//        double eps = 1e-6;
+//        gain_R = meanGray / (meanR + eps);
+//        gain_G = meanGray / (meanG + eps);
+//        gain_B = meanGray / (meanB + eps);
+//
+//        return ErrCode::Ok;
+//    }
+//    catch (const std::exception& ex) {
+//        std::cerr << "Exception in CalAWBGain_GrayWorld: " << ex.what() << std::endl;
+//        return ErrCode::Exception;
+//    }
+//    catch (...) {
+//        std::cerr << "Unknown exception in CalAWBGain_GrayWorld" << std::endl;
+//        return ErrCode::Unknown;
+//    }
+//}
+//
+//// ========================================
+//// åŠŸèƒ½ï¼šç™½å¹³è¡¡å¢ç›Šè¨ˆç®— - White Patch æ–¹æ³•
+//// èªªæ˜ï¼šæ‰¾å½±åƒä¸­æœ€äº®çš„å€åŸŸä½œç‚ºç™½é»åƒè€ƒï¼Œè¨ˆç®—å¢ç›Š
+//// è¼¸å…¥åƒæ•¸ï¼š
+////   - img: BGR å½©è‰²å½±åƒ (CV_32F)
+//// è¼¸å‡ºåƒæ•¸ï¼š
+////   - gain_R, gain_G, gain_B: è¨ˆç®—å‡ºçš„ RGB å¢ç›Š
+//// å›å‚³ï¼š
+////   - ErrCode::Ok æˆåŠŸ
+////   - ErrCode::EmptyImage å½±åƒç‚ºç©º
+////   - ErrCode::InvalidInput å½±åƒæ ¼å¼ä¸æ”¯æ´
+////   - ErrCode::Exception ä¾‹å¤–ç™¼ç”Ÿ
+////   - ErrCode::Unknown æœªçŸ¥éŒ¯èª¤
+//// ========================================
+//ISP::ErrCode ISP::CalAWBGain_WhitePatch(const cv::Mat& img, double& gain_R, double& gain_G, double& gain_B) {
+//    try {
+//        // é˜²å‘†ï¼šæª¢æŸ¥è¼¸å…¥
+//        if (img.empty()) {
+//            return ErrCode::EmptyImage;
+//        }
+//        if (img.depth() != CV_32F || img.channels() != 3) {
+//            return ErrCode::InvalidInput;
+//        }
+//
+//        // æ‹†æˆé€šé“
+//        std::vector<cv::Mat> channels(3);
+//        cv::split(img, channels);
+//
+//        // å–å‰ 5% æœ€äº®åƒç´ çš„å¹³å‡å€¼
+//        double R_mean = getBiggestMean(channels[2]);
+//        double G_mean = getBiggestMean(channels[1]);
+//        double B_mean = getBiggestMean(channels[0]);
+//
+//        // G ä½œç‚ºåƒè€ƒ
+//        gain_R = G_mean / R_mean;
+//        gain_G = 1.0;
+//        gain_B = G_mean / B_mean;
+//
+//        return ErrCode::Ok;
+//    }
+//    catch (const std::exception& ex) {
+//        std::cerr << "Exception in CalAWBGain_WhitePatch: " << ex.what() << std::endl;
+//        return ErrCode::Exception;
+//    }
+//    catch (...) {
+//        std::cerr << "Unknown exception in CalAWBGain_WhitePatch" << std::endl;
+//        return ErrCode::Unknown;
+//    }
+//}
+
 // ========================================
-// ¥\¯à¡G¥Õ¥­¿Å¼W¯q­pºâ - Gray World ¤èªk
-// »¡©ú¡G°²³]³õ´º¥­§¡ÃC¦â¬°¦Ç¦â¡A­pºâ¨Ï¦U³q¹D¥­§¡­È¬Ûµ¥ªº¼W¯q
-// ¿é¤J°Ñ¼Æ¡G
-//   - img: BGR ±m¦â¼v¹³ (CV_32F)
-// ¿é¥X°Ñ¼Æ¡G
-//   - gain_R, gain_G, gain_B: ­pºâ¥Xªº RGB ¼W¯q
-// ¦^¶Ç¡G
-//   - ErrCode::Ok ¦¨¥\
-//   - ErrCode::EmptyImage ¼v¹³¬°ªÅ
-//   - ErrCode::InvalidInput ¼v¹³®æ¦¡¤£¤ä´©
-//   - ErrCode::Exception ¨Ò¥~µo¥Í
-//   - ErrCode::Unknown ¥¼ª¾¿ù»~
+// åŠŸèƒ½ï¼šç™½å¹³è¡¡å¢ç›Šè¨ˆç®— - Gray World æ–¹æ³• (RAW BGGR å°ˆç”¨)
+// èªªæ˜ï¼šæ ¹æ“š BGGR 2x2 é™£åˆ—åˆ†åˆ¥çµ±è¨ˆ B, G, R åƒç´ å¹³å‡å€¼
+// è¼¸å…¥åƒæ•¸ï¼š
+//    - rawImg: å–®é€šé“ RAW å½±åƒ (CV_32F, æ ¼å¼é è¨­ç‚º BGGR)
+// è¼¸å‡ºåƒæ•¸ï¼š
+//    - gain_R, gain_G, gain_B: è¨ˆç®—å‡ºçš„ RGB å¢ç›Š
 // ========================================
-ISP::ErrCode ISP::CalAWBGain_GrayWorld(const cv::Mat& img, double& gain_R, double& gain_G, double& gain_B) {
+ISP::ErrCode ISP::CalAWBGain_GrayWorld(const cv::Mat& rawImg, double& gain_R, double& gain_G, double& gain_B) {
     try {
-        // ¨¾§b¡GÀË¬d¿é¤J
-        if (img.empty()) {
+        // é˜²å‘†ï¼šæª¢æŸ¥è¼¸å…¥ (RAW æ‡‰ç‚ºå–®é€šé“ CV_32F)
+        if (rawImg.empty()) {
             return ErrCode::EmptyImage;
         }
-        if (img.depth() != CV_32F || img.channels() != 3) {
+        if (rawImg.depth() != CV_32F || rawImg.channels() != 1) {
             return ErrCode::InvalidInput;
         }
 
-        // ½Æ»s¨Ã½T«O¬° CV_32F
-        cv::Mat img32F;
-        img.convertTo(img32F, CV_32F);
+        double sumB = 0.0, sumG = 0.0, sumR = 0.0;
+        int countB = 0, countG = 0, countR = 0;
 
-        // ©î¦¨³q¹D
-        std::vector<cv::Mat> channels(3);
-        cv::split(img32F, channels);
+        int height = rawImg.rows;
+        int width = rawImg.cols;
 
-        // ­pºâ¦U³q¹D¥­§¡­È
-        double meanR = cv::mean(channels[2])[0];
-        double meanG = cv::mean(channels[1])[0];
-        double meanB = cv::mean(channels[0])[0];
+        // èµ°è¨ªåƒç´ ä¸¦æ ¹æ“š BGGR ä½ç½®åˆ†é¡çµ±è¨ˆ
+        for (int y = 0; y < height; y++) {
+            const float* row = rawImg.ptr<float>(y);
+            bool isEvenRow = (y % 2 == 0);
+
+            for (int x = 0; x < width; x++) {
+                bool isEvenCol = (x % 2 == 0);
+                float val = row[x];
+
+                if (isEvenRow && isEvenCol) {
+                    // (y:å¶, x:å¶) -> B
+                    sumB += val;
+                    countB++;
+                }
+                else if (isEvenRow && !isEvenCol) {
+                    // (y:å¶, x:å¥‡) -> Gb
+                    sumG += val;
+                    countG++;
+                }
+                else if (!isEvenRow && isEvenCol) {
+                    // (y:å¥‡, x:å¶) -> Gr
+                    sumG += val;
+                    countG++;
+                }
+                else {
+                    // (y:å¥‡, x:å¥‡) -> R
+                    sumR += val;
+                    countR++;
+                }
+            }
+        }
+
+        // è¨ˆç®—å„é€šé“å¹³å‡å€¼
+        double eps = 1e-6;
+        double meanB = sumB / (countB + eps);
+        double meanG = sumG / (countG + eps);
+        double meanR = sumR / (countR + eps);
+
+        // ç°åº¦ä¸–ç•Œå‡è¨­ï¼šTarget = (R + G + B) / 3
         double meanGray = (meanR + meanG + meanB) / 3.0;
 
-        // ­pºâ¼W¯q
-        double eps = 1e-6;
+        // è¨ˆç®—å¢ç›Š
         gain_R = meanGray / (meanR + eps);
         gain_G = meanGray / (meanG + eps);
         gain_B = meanGray / (meanB + eps);
@@ -295,42 +428,67 @@ ISP::ErrCode ISP::CalAWBGain_GrayWorld(const cv::Mat& img, double& gain_R, doubl
 }
 
 // ========================================
-// ¥\¯à¡G¥Õ¥­¿Å¼W¯q­pºâ - White Patch ¤èªk
-// »¡©ú¡G§ä¼v¹³¤¤³Ì«Gªº°Ï°ì§@¬°¥ÕÂI°Ñ¦Ò¡A­pºâ¼W¯q
-// ¿é¤J°Ñ¼Æ¡G
-//   - img: BGR ±m¦â¼v¹³ (CV_32F)
-// ¿é¥X°Ñ¼Æ¡G
-//   - gain_R, gain_G, gain_B: ­pºâ¥Xªº RGB ¼W¯q
-// ¦^¶Ç¡G
-//   - ErrCode::Ok ¦¨¥\
-//   - ErrCode::EmptyImage ¼v¹³¬°ªÅ
-//   - ErrCode::InvalidInput ¼v¹³®æ¦¡¤£¤ä´©
-//   - ErrCode::Exception ¨Ò¥~µo¥Í
-//   - ErrCode::Unknown ¥¼ª¾¿ù»~
+// åŠŸèƒ½ï¼šç™½å¹³è¡¡å¢ç›Šè¨ˆç®— - White Patch æ–¹æ³• (RAW BGGR å°ˆç”¨)
+// èªªæ˜ï¼šæŠ½å– BGGR ç¨ç«‹é€šé“å¾Œï¼Œåˆ†åˆ¥å–å‰ 5% æœ€äº®åƒç´ çš„å¹³å‡å€¼ä½œç‚ºåƒè€ƒ
+// è¼¸å…¥åƒæ•¸ï¼š
+//    - rawImg: å–®é€šé“ RAW å½±åƒ (CV_32F, æ ¼å¼é è¨­ç‚º BGGR)
+// è¼¸å‡ºåƒæ•¸ï¼š
+//    - gain_R, gain_G, gain_B: è¨ˆç®—å‡ºçš„ RGB å¢ç›Š
 // ========================================
-ISP::ErrCode ISP::CalAWBGain_WhitePatch(const cv::Mat& img, double& gain_R, double& gain_G, double& gain_B) {
+ISP::ErrCode ISP::CalAWBGain_WhitePatch(const cv::Mat& rawImg, double& gain_R, double& gain_G, double& gain_B) {
     try {
-        // ¨¾§b¡GÀË¬d¿é¤J
-        if (img.empty()) {
+        // é˜²å‘†ï¼šæª¢æŸ¥è¼¸å…¥ (RAW æ‡‰ç‚ºå–®é€šé“ CV_32F)
+        if (rawImg.empty()) {
             return ErrCode::EmptyImage;
         }
-        if (img.depth() != CV_32F || img.channels() != 3) {
+        if (rawImg.depth() != CV_32F || rawImg.channels() != 1) {
             return ErrCode::InvalidInput;
         }
 
-        // ©î¦¨³q¹D
-        std::vector<cv::Mat> channels(3);
-        cv::split(img, channels);
+        int height = rawImg.rows;
+        int width = rawImg.cols;
 
-        // ¨ú«e 5% ³Ì«G¹³¯Àªº¥­§¡­È
-        double R_mean = getBiggestMean(channels[2]);
-        double G_mean = getBiggestMean(channels[1]);
-        double B_mean = getBiggestMean(channels[0]);
+        // å»ºç«‹å–®é€šé“åœ–ä¾†å­˜æ”¾æ‹†è§£å‡ºçš„ B, G, R åƒç´ 
+        // G é€šé“åƒç´ æ•¸é‡ç‚º B/R çš„å…©å€
+        cv::Mat matB(height / 2, width / 2, CV_32F);
+        cv::Mat matR(height / 2, width / 2, CV_32F);
+        cv::Mat matG(height, width / 2, CV_32F); // åŒ…å« Gb èˆ‡ Gr
 
-        // G §@¬°°Ñ¦Ò
-        gain_R = G_mean / R_mean;
+        int gRowIdx = 0;
+        for (int y = 0; y < height; y++) {
+            const float* srcRow = rawImg.ptr<float>(y);
+            int halfY = y / 2;
+
+            if (y % 2 == 0) {
+                // å¶æ•¸åˆ—ï¼šB, Gb
+                float* bRow = matB.ptr<float>(halfY);
+                float* gRow = matG.ptr<float>(gRowIdx++);
+                for (int x = 0; x < width; x += 2) {
+                    bRow[x / 2] = srcRow[x];     // B
+                    gRow[x / 2] = srcRow[x + 1]; // Gb
+                }
+            }
+            else {
+                // å¥‡æ•¸åˆ—ï¼šGr, R
+                float* gRow = matG.ptr<float>(gRowIdx++);
+                float* rRow = matR.ptr<float>(halfY);
+                for (int x = 0; x < width; x += 2) {
+                    gRow[x / 2] = srcRow[x];     // Gr
+                    rRow[x / 2] = srcRow[x + 1]; // R
+                }
+            }
+        }
+
+        // ä½¿ç”¨åŸæœ¬çš„ getBiggestMean å–å„é€šé“å‰ 5% æœ€äº®åƒç´ å¹³å‡å€¼
+        double B_mean = getBiggestMean(matB);
+        double G_mean = getBiggestMean(matG);
+        double R_mean = getBiggestMean(matR);
+
+        // ä»¥ G ç‚ºåŸºæº– 1.0 è¨ˆç®— Gain
+        double eps = 1e-6;
+        gain_R = G_mean / (R_mean + eps);
         gain_G = 1.0;
-        gain_B = G_mean / B_mean;
+        gain_B = G_mean / (B_mean + eps);
 
         return ErrCode::Ok;
     }
@@ -345,35 +503,35 @@ ISP::ErrCode ISP::CalAWBGain_WhitePatch(const cv::Mat& img, double& gain_R, doub
 }
 
 // ========================================
-// ¥\¯à¡G®M¥Î¥Õ¥­¿Å¼W¯q¨ì­ì©l Bayer ¼v¹³
-// »¡©ú¡G®Ú¾Ú Bayer ±Æ¦C¼Ò¦¡ (RGGB) ¦b¹ïÀ³¦ì¸m¬I¥[¼W¯q
-// ¿é¤J°Ñ¼Æ¡G
-//   - raw32: ­ì©l Bayer ¼v¹³ (CV_32F single-channel)
-//   - height, width: ¼v¹³¤Ø¤o
-//   - gainR, gainG, gainB: RGB ¼W¯q­È
-// ¿é¥X°Ñ¼Æ¡G
-//   - raw32: ­×§ï«áªº¼v¹³
-// ¦^¶Ç¡G
-//   - ErrCode::Ok ¦¨¥\
-//   - ErrCode::EmptyImage ¼v¹³¬°ªÅ
-//   - ErrCode::Exception ¨Ò¥~µo¥Í
-//   - ErrCode::Unknown ¥¼ª¾¿ù»~
+// åŠŸèƒ½ï¼šå¥—ç”¨ç™½å¹³è¡¡å¢ç›Šåˆ°åŸå§‹ Bayer å½±åƒ
+// èªªæ˜ï¼šæ ¹æ“š Bayer æ’åˆ—æ¨¡å¼ (RGGB) åœ¨å°æ‡‰ä½ç½®æ–½åŠ å¢ç›Š
+// è¼¸å…¥åƒæ•¸ï¼š
+//   - raw32: åŸå§‹ Bayer å½±åƒ (CV_32F single-channel)
+//   - height, width: å½±åƒå°ºå¯¸
+//   - gainR, gainG, gainB: RGB å¢ç›Šå€¼
+// è¼¸å‡ºåƒæ•¸ï¼š
+//   - raw32: ä¿®æ”¹å¾Œçš„å½±åƒ
+// å›å‚³ï¼š
+//   - ErrCode::Ok æˆåŠŸ
+//   - ErrCode::EmptyImage å½±åƒç‚ºç©º
+//   - ErrCode::Exception ä¾‹å¤–ç™¼ç”Ÿ
+//   - ErrCode::Unknown æœªçŸ¥éŒ¯èª¤
 // ========================================
 ISP::ErrCode ISP::ApplyAWBGain(cv::Mat& raw32, int height, int width, double gainR, double gainG, double gainB) {
     try {
-        // ¨¾§b¡GÀË¬d¼v¹³
+        // é˜²å‘†ï¼šæª¢æŸ¥å½±åƒ
         if (raw32.empty() || height <= 0 || width <= 0) {
             return ErrCode::InvalidInput;
         }
 
-        // «Ø¥ß¼W¯q¹ïÀ³ªí (Bayer RGGB ¼Ò¦¡)
+        // å»ºç«‹å¢ç›Šå°æ‡‰è¡¨ (Bayer RGGB æ¨¡å¼)
         std::vector<float> cam_mul_normalized(4);
         cam_mul_normalized[0] = gainR; // R (y=0, x=0)
         cam_mul_normalized[1] = gainG; // G (y=0, x=1)
         cam_mul_normalized[2] = gainG; // G (y=1, x=0)
         cam_mul_normalized[3] = gainB; // B (y=1, x=1)
 
-        // ®M¥Î AWB ¼W¯q¡G®Ú¾Ú¹³¯À¦ì¸m¦b 2x2 Bayer ¼Ò¦¡¤¤ªº¦ì¸m¿ï¾Ü¼W¯q
+        // å¥—ç”¨ AWB å¢ç›Šï¼šæ ¹æ“šåƒç´ ä½ç½®åœ¨ 2x2 Bayer æ¨¡å¼ä¸­çš„ä½ç½®é¸æ“‡å¢ç›Š
         for (int y = 0; y < height; y++) {
             float* row = raw32.ptr<float>(y);
             for (int x = 0; x < width; x++) {
@@ -382,7 +540,7 @@ ISP::ErrCode ISP::ApplyAWBGain(cv::Mat& raw32, int height, int width, double gai
             }
         }
 
-        // 4. clip ¨ì 0~1 ½d³ò
+        // 4. clip åˆ° 0~1 ç¯„åœ
         cv::threshold(raw32, raw32, 0.0, 0.0, cv::THRESH_TOZERO); // clip <0
         cv::threshold(raw32, raw32, 1.0, 1.0, cv::THRESH_TRUNC);  // clip >1
 
@@ -399,35 +557,35 @@ ISP::ErrCode ISP::ApplyAWBGain(cv::Mat& raw32, int height, int width, double gai
 }
 
 // ========================================
-// ¥\¯à¡GBayer ¥h°¨ÁÉ§J (Demosaic)
-// »¡©ú¡G±N Bayer CFA ¼v¹³Âà´«¬° BGR ±m¦â¼v¹³
-// ¨BÆJ¡G
-//   1. Âà´«¿é¤J¬° float 0~1 ½d³ò
-//   2. Âà 16-bit (OpenCV cvtColor ¤£¤ä´© float Bayer)
-//   3. °õ¦æ demosaic ¾Ş§@ (COLOR_BayerBG2BGR)
-//   4. Âà¦^ float ¨Ã clip ¨ì 0~1
-// ¿é¤J°Ñ¼Æ¡G
-//   - raw: Bayer ­ì©l¼v¹³ (CV_16U ©Î CV_32F single-channel)
-// ¿é¥X°Ñ¼Æ¡G
-//   - out_bgr32: ¿é¥X BGR ¼v¹³ (CV_32F 3-channel)
-// ¦^¶Ç¡G
-//   - ErrCode::Ok ¦¨¥\
-//   - ErrCode::EmptyImage ¼v¹³¬°ªÅ
-//   - ErrCode::InvalidInput ¿é¤J®æ¦¡¤£¤ä´©
-//   - ErrCode::DemosaicFailed demosaic ¹Lµ{¥¢±Ñ
-//   - ErrCode::Exception ¨Ò¥~µo¥Í
-//   - ErrCode::Unknown ¥¼ª¾¿ù»~
+// åŠŸèƒ½ï¼šBayer å»é¦¬è³½å…‹ (Demosaic)
+// èªªæ˜ï¼šå°‡ Bayer CFA å½±åƒè½‰æ›ç‚º BGR å½©è‰²å½±åƒ
+// æ­¥é©Ÿï¼š
+//   1. è½‰æ›è¼¸å…¥ç‚º float 0~1 ç¯„åœ
+//   2. è½‰ 16-bit (OpenCV cvtColor ä¸æ”¯æ´ float Bayer)
+//   3. åŸ·è¡Œ demosaic æ“ä½œ (COLOR_BayerBG2BGR)
+//   4. è½‰å› float ä¸¦ clip åˆ° 0~1
+// è¼¸å…¥åƒæ•¸ï¼š
+//   - raw: Bayer åŸå§‹å½±åƒ (CV_16U æˆ– CV_32F single-channel)
+// è¼¸å‡ºåƒæ•¸ï¼š
+//   - out_bgr32: è¼¸å‡º BGR å½±åƒ (CV_32F 3-channel)
+// å›å‚³ï¼š
+//   - ErrCode::Ok æˆåŠŸ
+//   - ErrCode::EmptyImage å½±åƒç‚ºç©º
+//   - ErrCode::InvalidInput è¼¸å…¥æ ¼å¼ä¸æ”¯æ´
+//   - ErrCode::DemosaicFailed demosaic éç¨‹å¤±æ•—
+//   - ErrCode::Exception ä¾‹å¤–ç™¼ç”Ÿ
+//   - ErrCode::Unknown æœªçŸ¥éŒ¯èª¤
 // ========================================
 ISP::ErrCode ISP::demosaic(const cv::Mat& rawIn, cv::Mat& out_bgr32) {
     try {
-        // ¨¾§b¡GÀË¬d¿é¤J
+        // é˜²å‘†ï¼šæª¢æŸ¥è¼¸å…¥
         if (rawIn.empty()) {
             return ErrCode::EmptyImage;
         }
 
         cv::Mat raw32;
 
-        // 1. Âà float 0~1
+        // 1. è½‰ float 0~1
         if (rawIn.type() == CV_16U) {
             rawIn.convertTo(raw32, CV_32F, 1.0 / 65535.0);
         }
@@ -435,33 +593,33 @@ ISP::ErrCode ISP::demosaic(const cv::Mat& rawIn, cv::Mat& out_bgr32) {
             raw32 = rawIn.clone();
         }
         else {
-            // ¤£¤ä´©ªº¿é¤J®æ¦¡
+            // ä¸æ”¯æ´çš„è¼¸å…¥æ ¼å¼
             return ErrCode::InvalidInput;
         }
 
-        // 2. clip <0 (¨¾¤î­t­È)
+        // 2. clip <0 (é˜²æ­¢è² å€¼)
         cv::threshold(raw32, raw32, 0.0, 0.0, cv::THRESH_TOZERO);
 
-        // 3. clip >1 (¨¾¤î¹L¤j)
+        // 3. clip >1 (é˜²æ­¢éå¤§)
         cv::threshold(raw32, raw32, 1.0, 1.0, cv::THRESH_TRUNC);
 
-        // 4. ¥ıÂà¦¨ CV_16U Á×§K cvtColor float crash
+        // 4. å…ˆè½‰æˆ CV_16U é¿å… cvtColor float crash
         cv::Mat raw16;
         raw32.convertTo(raw16, CV_16U, 65535.0);
 
-        // 5. °õ¦æ demosaic
+        // 5. åŸ·è¡Œ demosaic
         cv::Mat bgr16;
-        cv::cvtColor(raw16, bgr16, cv::COLOR_BayerBG2BGR); // Bayer pattern µø sensor ¦Ó©w
+        cv::cvtColor(raw16, bgr16, cv::COLOR_BayerBG2BGR); // Bayer pattern è¦– sensor è€Œå®š
 
         if (bgr16.empty()) {
             return ErrCode::DemosaicFailed;
         }
 
-        // 6. Âà¦^ float 0~1
+        // 6. è½‰å› float 0~1
         cv::Mat bgr32;
         bgr16.convertTo(bgr32, CV_32F, 1.0 / 65535.0);
 
-        // 7. clip ¨ì 0~1 ½d³ò (½T«O¿é¥X¼Æ­È¥¿±`)
+        // 7. clip åˆ° 0~1 ç¯„åœ (ç¢ºä¿è¼¸å‡ºæ•¸å€¼æ­£å¸¸)
         cv::threshold(bgr32, bgr32, 0.0, 0.0, cv::THRESH_TOZERO); // clip <0
         cv::threshold(bgr32, bgr32, 1.0, 1.0, cv::THRESH_TRUNC);  // clip >1
 
@@ -479,59 +637,111 @@ ISP::ErrCode ISP::demosaic(const cv::Mat& rawIn, cv::Mat& out_bgr32) {
 }
 
 
-// ³]©w / ¸ü¤J ONNX ¼Ò«¬
+// è¨­å®š / è¼‰å…¥ ONNX æ¨¡å‹
 ISP::ErrCode ISP::SetAiDemosaicModel(const char* modelPath)
 {
     try {
-        if (modelPath == nullptr) return ErrCode::InvalidInput;
+        // ------------------------------------------------------------------
+        // 0. é˜²ç¦¦æ©Ÿåˆ¶ï¼šå°‡ç•¶å‰æ¨¡çµ„ (DLL/EXE) æ‰€åœ¨ç›®éŒ„è¨»å†Šè‡³ Windows DLL æœå°‹æ¸…å–®
+        //    (è§£æ±º ONNX Runtime æ‰¾ä¸åˆ°åŒç›®éŒ„ä¸‹ cuDNN / CUDA DLL çš„å•é¡Œ)
+        // ------------------------------------------------------------------
+        //HMODULE hModule = NULL;
+        //// ç›´æ¥å‚³å…¥å‡½å¼å…§å€åŸŸè®Šæ•¸ &hModule çš„ä½å€ï¼Œä»£è¡¨ã€Œå–å¾—åŒ…å«é€™è¡Œç¨‹å¼ç¢¼çš„ DLL/EXE æ¨¡çµ„ã€
+        //GetModuleHandleExW(
+        //    GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
+        //    (LPCWSTR)&hModule, // å‚³å…¥ä¸€èˆ¬çš„ä½å€ï¼Œå®Œå…¨åˆè¦ä¸”ä¸æœƒæœ‰ç·¨è­¯è­¦å‘Š
+        //    &hModule
+        //);
 
-        std::string path(modelPath);
-        std::ifstream f(path.c_str());
-        if (!f.good()) {
-            std::cerr << "Model file not found: " << path << std::endl;
-            return ErrCode::InvalidInput;
+        //wchar_t modulePath[MAX_PATH];
+        //if (GetModuleFileNameW(hModule, modulePath, MAX_PATH) > 0) {
+        //    std::wstring wpath(modulePath);
+        //    std::wstring moduleDir = wpath.substr(0, wpath.find_last_of(L"\\/"));
+        //    if (AddDllDirectory(moduleDir.c_str())) {
+        //        SetDefaultDllDirectories(LOAD_LIBRARY_SEARCH_DEFAULT_DIRS | LOAD_LIBRARY_SEARCH_USER_DIRS);
+        //    }
+        //}
+
+        // 1. åªæœ‰åœ¨å°šæœªå»ºç«‹ Env æ™‚æ‰åˆå§‹åŒ– (Lazy Init)
+        if (!ort_env) {
+            ort_env = std::make_unique<Ort::Env>(ORT_LOGGING_LEVEL_WARNING, "AIDemosaic");
         }
-        f.close();
 
-        // ¹Á¸Õ¥Î OpenCV DNN ¸ü¤J ONNX ¼Ò«¬
-        cv::dnn::Net net;
+        // 2. è¨­å®š SessionOptions
+        Ort::SessionOptions session_options;
+        session_options.SetIntraOpNumThreads(2);
+        session_options.SetGraphOptimizationLevel(GraphOptimizationLevel::ORT_ENABLE_ALL);
+
+        // 3. å˜—è©¦æ›è¼‰ CUDA åŠ é€Ÿ (è‹¥ç„¡ GPU æˆ–å¤±æ•—æœƒè‡ªå‹• fallback åˆ° CPU)
+        bool is_cuda_enabled = false;
         try {
-            net = cv::dnn::readNetFromONNX(path);
+            OrtCUDAProviderOptions cuda_options;
+            cuda_options.device_id = 0;
+
+            session_options.AppendExecutionProvider_CUDA(cuda_options);
+            is_cuda_enabled = true;
+            std::cout << "âš¡ å·²å˜—è©¦æ›è¼‰ CUDA Provider..." << std::endl;
         }
-        catch (const cv::Exception& e) {
-            std::cerr << "Failed to read ONNX model: " << e.what() << std::endl;
-            return ErrCode::InvalidInput;
+        catch (const Ort::Exception& e) {
+            std::cerr << "âš ï¸ CUDA æ›è¼‰å¤±æ•— (Ort::Exception): " << e.what() << std::endl;
+            std::cerr << "ğŸ‘‰ å°‡è‡ªå‹•é€€å›ç´” CPU æ¨¡å¼åŸ·è¡Œã€‚" << std::endl;
+            is_cuda_enabled = false;
         }
 
-        // ³]©w backend / target¡AÀu¥ı¨Ï¥Î CPU¡]¥iµø»İ­n§ï¬° CUDA¡^
-        net.setPreferableBackend(cv::dnn::DNN_BACKEND_DEFAULT);
-        net.setPreferableTarget(cv::dnn::DNN_TARGET_CPU);
+        // ------------------------------------------------------------------
+        // 4. æ”¹ç”¨ C++ std::ifstream è®€å–æ¨¡å‹ Buffer
+        //    (å®Œå…¨ç¹é Windows CreateFileMapping èˆ‡æ¬Šé™/å”¯è®€é–å®šå•é¡Œ)
+        // ------------------------------------------------------------------
+        std::ifstream model_file(modelPath, std::ios::binary | std::ios::ate);
+        if (!model_file.is_open()) {
+            std::cerr << "[AI Demosaic] ç„¡æ³•é–‹å•Ÿæ¨¡å‹æª”æ¡ˆ: " << modelPath << std::endl;
+            return ErrCode::DemosaicFailed;
+        }
 
-        // Àx¦s¨ìª«¥ó
-        ai_net = net;
-        ai_model_path = path;
+        std::streamsize model_size = model_file.tellg();
+        model_file.seekg(0, std::ios::beg);
 
+        std::vector<char> model_buffer(model_size);
+        if (!model_file.read(model_buffer.data(), model_size)) {
+            std::cerr << "[AI Demosaic] è®€å–æ¨¡å‹å…§å®¹å¤±æ•—" << std::endl;
+            return ErrCode::DemosaicFailed;
+        }
+        model_file.close(); // è®€å–å®Œæˆå¾Œç«‹åˆ»é—œé–‰æª”æ¡ˆï¼Œä¸ç•™é–å®š
+
+        // 5. å»ºç«‹ Session (ä½¿ç”¨ Memory Buffer å¤šè¼‰ç‰ˆæœ¬)
+        ort_session = std::make_unique<Ort::Session>(
+            *ort_env,
+            model_buffer.data(),
+            model_size,
+            session_options
+        );
+
+        // 6. è§£æ Input/Output Node åç¨±
+        Ort::AllocatorWithDefaultOptions allocator;
+        auto input_name_ptr = ort_session->GetInputNameAllocated(0, allocator);
+        auto output_name_ptr = ort_session->GetOutputNameAllocated(0, allocator);
+
+        ort_input_name = input_name_ptr.get();
+        ort_output_name = output_name_ptr.get();
+
+        ai_model_path = modelPath;
         return ErrCode::Ok;
     }
-    catch (const std::exception& ex) {
-        std::cerr << "Exception in SetAiDemosaicModel: " << ex.what() << std::endl;
-        return ErrCode::Exception;
-    }
-    catch (...) {
-        std::cerr << "Unknown exception in SetAiDemosaicModel" << std::endl;
-        return ErrCode::Unknown;
+    catch (const std::exception& e) {
+        std::cerr << "[AI Demosaic] Model loading failed: " << e.what() << std::endl;
+        return ErrCode::DemosaicFailed;
     }
 }
 
-// ¥Î«ü©w modelPath ª½±µ±À½×¡]³æ¦¸¡^
+// ç”¨æŒ‡å®š modelPath ç›´æ¥æ¨è«–ï¼ˆå–®æ¬¡ï¼‰
 ISP::ErrCode ISP::AiDemosaicWithModel(cv::Mat& raw, cv::Mat& out_bgr32, const char* modelPath)
 {
     try {
-        // ¸ü¤J¼Ò«¬¡]­Y¥¢±Ñ·|¦^¶Ç¿ù»~¡^
+        // è¼‰å…¥æ¨¡å‹ï¼ˆè‹¥å¤±æ•—æœƒå›å‚³éŒ¯èª¤ï¼‰
         ErrCode ec = SetAiDemosaicModel(modelPath);
         if (ec != ErrCode::Ok) return ec;
 
-        // ©I¥s¤w¸ü¤Jªº AiDemosaic
+        // å‘¼å«å·²è¼‰å…¥çš„ AiDemosaic
         return AiDemosaic(raw, out_bgr32);
     }
     catch (const std::exception& ex) {
@@ -544,18 +754,17 @@ ISP::ErrCode ISP::AiDemosaicWithModel(cv::Mat& raw, cv::Mat& out_bgr32, const ch
     }
 }
 
-// ¨Ï¥Î¤w¸ü¤J¼Ò«¬¶i¦æ±À½×
+// ä½¿ç”¨å·²è¼‰å…¥æ¨¡å‹é€²è¡Œæ¨è«–
 ISP::ErrCode ISP::AiDemosaic(cv::Mat& raw, cv::Mat& out_bgr32)
 {
     try {
         if (raw.empty()) return ErrCode::EmptyImage;
-
-        if (ai_net.empty()) {
-            std::cerr << "AI model not loaded. Call SetAiDemosaicModel first." << std::endl;
+        if (!ort_session) {
+            std::cerr << "AiDemosaic: ONNX Session not initialized! Please call SetAiDemosaicModel first." << std::endl;
             return ErrCode::InvalidInput;
         }
 
-        // ½T«O raw ¬° single-channel ©Î 3-channel float (0..1)
+        // ç¢ºä¿ raw ç‚º single-channel æˆ–å¤šé€šé“ float (0..1)
         cv::Mat inputMat;
         if (raw.type() == CV_32F) {
             inputMat = raw;
@@ -570,12 +779,10 @@ ISP::ErrCode ISP::AiDemosaic(cv::Mat& raw, cv::Mat& out_bgr32)
             return ErrCode::InvalidInput;
         }
 
-        // °»¿ù¿é¥X¡G¦L¥X¿é¤J¤Ø¤o»P³q¹D¼Æ¡A½T«O¤Ø¤o¥¿½T
         std::cerr << "AiDemosaic: inputMat size = " << inputMat.cols << "x" << inputMat.rows
             << ", channels = " << inputMat.channels() << ", type = " << inputMat.type() << std::endl;
 
-        // ­Y¿é¤J¬° single-channel¡A¥B¬İ°_¨Ó¹³ Bayer raw¡]±`¨£±¡ªp¡^¡A±N©î¦¨ 4 ³q¹D (H/2, W/2, 4)
-        // ÀË¬d¬O§_¬° single-channel »P°¸¼Æ¤Ø¤o¡]Bayer »İ°¸¼Æ°ª¼e¡^
+        // è‹¥è¼¸å…¥ç‚º single-channel (Bayer Raw)ï¼Œæ‹†æˆ 4 é€šé“ (H/2, W/2, 4)
         cv::Mat modelInput;
         if (inputMat.channels() == 1) {
             int H = inputMat.rows;
@@ -589,13 +796,11 @@ ISP::ErrCode ISP::AiDemosaic(cv::Mat& raw, cv::Mat& out_bgr32)
             int h2 = H / 2;
             int w2 = W / 2;
 
-            // «Ø¥ß¥|­Ó¤l³q¹D (R, G1, G2, B)
             cv::Mat chR(h2, w2, CV_32F);
             cv::Mat chG1(h2, w2, CV_32F);
             cv::Mat chG2(h2, w2, CV_32F);
             cv::Mat chB(h2, w2, CV_32F);
 
-            // ¶ñ¤J¤l³q¹D¡GR(y=0,x=0), G1(y=0,x=1), G2(y=1,x=0), B(y=1,x=1)
             for (int y = 0; y < h2; ++y) {
                 const float* row0 = inputMat.ptr<float>(y * 2);
                 const float* row1 = inputMat.ptr<float>(y * 2 + 1);
@@ -611,7 +816,7 @@ ISP::ErrCode ISP::AiDemosaic(cv::Mat& raw, cv::Mat& out_bgr32)
                 }
             }
 
-            // Clip ¨ì 0..1 - ¨Ï¥Î cv::threshold¡]»P±M®×¨ä¥L¦a¤è¤@­P¡AÁ×§K std::min/std::max ½Ä¬ğ¡^
+            // Clip åˆ° 0..1
             cv::threshold(chR, chR, 0.0, 0.0, cv::THRESH_TOZERO);
             cv::threshold(chR, chR, 1.0, 1.0, cv::THRESH_TRUNC);
 
@@ -624,91 +829,117 @@ ISP::ErrCode ISP::AiDemosaic(cv::Mat& raw, cv::Mat& out_bgr32)
             cv::threshold(chB, chB, 0.0, 0.0, cv::THRESH_TOZERO);
             cv::threshold(chB, chB, 1.0, 1.0, cv::THRESH_TRUNC);
 
-
-            // ¦X¦¨ 4 ³q¹D¼v¹³ (h2, w2, 4)
-            std::vector<cv::Mat> raw4ch_vec;
-            raw4ch_vec.push_back(chR);
-            raw4ch_vec.push_back(chG1);
-            raw4ch_vec.push_back(chG2);
-            raw4ch_vec.push_back(chB);
+            std::vector<cv::Mat> raw4ch_vec = { chR, chG1, chG2, chB };
             cv::Mat raw4ch;
-            cv::merge(raw4ch_vec, raw4ch); // raw4ch: H/2 x W/2 x 4
+            cv::merge(raw4ch_vec, raw4ch); // (H/2, W/2, 4)
 
-            // Åã¥Ü²Õ¦¨«á¤Ø¤o¨Ñ°»¿ù
             std::cerr << "AiDemosaic: assembled raw4ch size = " << raw4ch.cols << "x" << raw4ch.rows
                 << ", channels = " << raw4ch.channels() << std::endl;
 
-            modelInput = raw4ch; // §@¬°¼Ò«¬¿é¤J
+            modelInput = raw4ch;
         }
         else {
-            // ­Y¿é¤J¤w¸g¬O¦h³q¹D¡]¨Ò¦p¤w¥h°¨ÁÉ§J©Î¨ä¥L®æ¦¡¡^¡Aª½±µ¥H­ì¿é¤J¬°¼Ò«¬¿é¤J
             modelInput = inputMat;
         }
 
+        // =========================================================================
+        // ğŸ’¡ ONNX Runtime å‰è™•ç†ï¼šå°‡ HWC cv::Mat è½‰ç‚º NCHW è¨˜æ†¶é«”ä½ˆå±€çš„ float å‘é‡
+        // =========================================================================
+        int inH = modelInput.rows;
+        int inW = modelInput.cols;
+        int inC = modelInput.channels();
 
+        std::vector<float> inputTensorValues(1 * inC * inH * inW);
 
-        // ¦pªG¬O¦h³q¹D¦ı¼Ò«¬´Á±æ single-channel¡A¥i¦X¨Ö©Î¨ú²Ä¤@³q¹D¡]¦¹³B«O¯d­ì©l channel¡^
-        // «Ø¥ß blob¡G«O«ù­ì©l¤j¤p¡Ano mean/subtract
-        cv::Mat blob = cv::dnn::blobFromImage(modelInput, 1.0, modelInput.size(), cv::Scalar(), false, false);
+        // åˆ†é›¢é€šé“å¡«å…¥ NCHW ä½ˆå±€ (Planar layout)
+        std::vector<cv::Mat> inputChannels(inC);
+        for (int c = 0; c < inC; ++c) {
+            // æŒ‡å‘ inputTensorValues å°æ‡‰é€šé“çš„èµ·å§‹è¨˜æ†¶é«”å€å¡Š
+            inputChannels[c] = cv::Mat(inH, inW, CV_32F, inputTensorValues.data() + c * (inH * inW));
+        }
+        // cv::split æœƒç›´æ¥å°‡ HWC Mat è‡ªå‹•è§£é–‹ä¸¦è¤‡è£½åˆ° inputTensorValues é€£çºŒè¨˜æ†¶é«”ä¸­
+        cv::split(modelInput, inputChannels);
 
+        // å»ºç«‹ ONNX Input Tensor
+        std::vector<int64_t> inputDims = { 1, inC, inH, inW };
+        Ort::MemoryInfo memoryInfo = Ort::MemoryInfo::CreateCpu(OrtAllocatorType::OrtArenaAllocator, OrtMemType::OrtMemTypeDefault);
 
-        // ³]©w¿é¤J¨Ã forward
-        ai_net.setInput(blob);
-        cv::Mat outBlob;
+        Ort::Value inputTensor = Ort::Value::CreateTensor<float>(
+            memoryInfo, inputTensorValues.data(), inputTensorValues.size(),
+            inputDims.data(), inputDims.size()
+        );
+
+        // =========================================================================
+        // ğŸ’¡ åŸ·è¡Œ ONNX Runtime æ¨è«–
+        // =========================================================================
+        const char* inputNames[] = { ort_input_name.c_str() };
+        const char* outputNames[] = { ort_output_name.c_str() };
+
+        std::vector<Ort::Value> outputTensors;
         try {
-            outBlob = ai_net.forward();
+            outputTensors = ort_session->Run(
+                Ort::RunOptions{ nullptr },
+                inputNames, &inputTensor, 1,
+                outputNames, 1
+            );
         }
-        catch (const cv::Exception& e) {
-            std::cerr << "ONNX forward failed: " << e.what() << std::endl;
+        catch (const Ort::Exception& e) {
+            std::cerr << "ONNX Runtime inference failed: " << e.what() << std::endl;
             return ErrCode::DemosaicFailed;
         }
 
-        // outBlob ¥i¯à§Îª¬¬° 1 x C x H x W ©Î 1 x H x W x C µ¥¡C³B²z±`¨£ 4D (NCHW)
-        if (outBlob.dims != 4) {
-            // ¹Á¸Õ reshape ­Y¥i¯à
-            std::cerr << "Unexpected output dimensions from model: " << outBlob.dims << std::endl;
+        if (outputTensors.empty() || !outputTensors[0].IsTensor()) {
+            std::cerr << "Invalid output tensor from ONNX Runtime" << std::endl;
             return ErrCode::DemosaicFailed;
         }
 
-        int n = outBlob.size[0];
-        int c = outBlob.size[1];
-        int h = outBlob.size[2];
-        int w = outBlob.size[3];
+        // =========================================================================
+        // ğŸ’¡ è§£æè¼¸å‡º Tensor (NCHW -> cv::Mat)
+        // =========================================================================
+        auto tensorInfo = outputTensors[0].GetTensorTypeAndShapeInfo();
+        std::vector<int64_t> outDims = tensorInfo.GetShape();
 
-        if (n < 1) return ErrCode::DemosaicFailed;
-        if (c != 3 && c != 1) {
-            std::cerr << "Model output channels not 1 or 3: " << c << std::endl;
+        if (outDims.size() != 4) {
+            std::cerr << "Unexpected output dimensions from model: " << outDims.size() << std::endl;
             return ErrCode::DemosaicFailed;
         }
 
-        // Âà´«¦¨ HxWxC CV_32F
-        std::vector<cv::Mat> channels;
-        channels.reserve(c);
-        // outBlob is NCHW float; extract each channel
-        for (int i = 0; i < c; ++i) {
-            // create Mat header pointing to data for channel i
-            cv::Mat ch(h, w, CV_32F, outBlob.ptr(0, i));
-            channels.push_back(ch.clone()); // clone to own memory
+        int outN = static_cast<int>(outDims[0]);
+        int outC = static_cast<int>(outDims[1]);
+        int outH = static_cast<int>(outDims[2]);
+        int outW = static_cast<int>(outDims[3]);
+
+        if (outN < 1 || (outC != 3 && outC != 1)) {
+            std::cerr << "Model output channels not 1 or 3: " << outC << std::endl;
+            return ErrCode::DemosaicFailed;
+        }
+
+        // å–å¾—è¼¸å‡º float é™£åˆ—æŒ‡æ¨™
+        float* floatResults = outputTensors[0].GetTensorMutableData<float>();
+
+        // å°‡ NCHW è½‰å› OpenCV é€šé“åˆ—è¡¨
+        std::vector<cv::Mat> outChannels;
+        outChannels.reserve(outC);
+        for (int i = 0; i < outC; ++i) {
+            // æŒ‡å‘ Channel i çš„èµ·é»ä¸¦ clone ä»¥æ“æœ‰ç¨å è¨˜æ†¶é«”
+            cv::Mat ch(outH, outW, CV_32F, floatResults + i * (outH * outW));
+            outChannels.push_back(ch.clone());
         }
 
         cv::Mat merged;
-        if (c == 1) {
-            // single channel -> replicate to 3 channels (¦Ç¶¥)
-            cv::Mat gray = channels[0];
-            cv::Mat bgr;
-            cv::cvtColor(gray, bgr, cv::COLOR_GRAY2BGR);
-            merged = bgr;
+        if (outC == 1) {
+            // å–®é€šé“ -> è¤‡è£½æˆ 3 é€šé“ç°éš
+            cv::Mat gray = outChannels[0];
+            cv::cvtColor(gray, merged, cv::COLOR_GRAY2BGR);
         }
         else {
-            // c==3 : typical model ordered as BGR or RGB unknown; assume output is RGB -> convert to BGR
-            // Many ONNX models output RGB; here attempt to detect reasonable range: if values in [0,1], leave
+            // 3 é€šé“ï¼šå‡è¨­è¼¸å‡ºç‚º RGBï¼Œåˆæˆå¾Œè½‰ç‚º BGR
             cv::Mat m;
-            cv::merge(channels, m); // m is HxWx3 with channel order [ch0,ch1,ch2]
-            // Try to detect if model produced RGB: we assume RGB -> convert to BGR
+            cv::merge(outChannels, m);
             cv::cvtColor(m, merged, cv::COLOR_RGB2BGR);
         }
 
-        // ½T«O output ¬° CV_32F ¤Î½d³ò 0..1¡F­Y¥²­n¥i clip
+        // Clip ç¢ºä¿è¼¸å‡ºç¯„ç–‡åœ¨ 0..1
         cv::threshold(merged, merged, 0.0, 0.0, cv::THRESH_TOZERO);
         cv::threshold(merged, merged, 1.0, 1.0, cv::THRESH_TRUNC);
 
@@ -727,29 +958,29 @@ ISP::ErrCode ISP::AiDemosaic(cv::Mat& raw, cv::Mat& out_bgr32)
 
 
 // ========================================
-// ¥\¯à¡G¦â±m®Õ¥¿ (Color Correction Matrix)
-// »¡©ú¡G¨Ï¥Î CCM ¯x°}±N¬Û¾÷ RGB ¦â±mªÅ¶¡Âà´«¨ì¼Ğ·Ç sRGB ¦â±mªÅ¶¡
-// ¨BÆJ¡G
-//   1. BGR -> RGB Âà´«
-//   2. ®M¥Î CCM ¯x°}
-//   3. RGB -> BGR Âà´« (¦^¨ì OpenCV BGR ®æ¦¡)
-//   4. Clip ¨ì 0~1 ½d³ò
-// ¿é¤J°Ñ¼Æ¡G
-//   - img: BGR ±m¦â¼v¹³ (CV_32F 3-channel)
-//   - ccm: ¦â±m®Õ¥¿¯x°} (3x3 float)
-// ¿é¥X°Ñ¼Æ¡G
-//   - out: ¦â±m®Õ¥¿«áªº¼v¹³
-// ¦^¶Ç¡G
-//   - ErrCode::Ok ¦¨¥\
-//   - ErrCode::EmptyImage ¼v¹³©Î CCM ¬°ªÅ
-//   - ErrCode::InvalidInput ¿é¤J®æ¦¡¤£¤ä´©
-//   - ErrCode::ColorCorrectionFailed ¦â±m®Õ¥¿¥¢±Ñ
-//   - ErrCode::Exception ¨Ò¥~µo¥Í
-//   - ErrCode::Unknown ¥¼ª¾¿ù»~
+// åŠŸèƒ½ï¼šè‰²å½©æ ¡æ­£ (Color Correction Matrix)
+// èªªæ˜ï¼šä½¿ç”¨ CCM çŸ©é™£å°‡ç›¸æ©Ÿ RGB è‰²å½©ç©ºé–“è½‰æ›åˆ°æ¨™æº– sRGB è‰²å½©ç©ºé–“
+// æ­¥é©Ÿï¼š
+//   1. BGR -> RGB è½‰æ›
+//   2. å¥—ç”¨ CCM çŸ©é™£
+//   3. RGB -> BGR è½‰æ› (å›åˆ° OpenCV BGR æ ¼å¼)
+//   4. Clip åˆ° 0~1 ç¯„åœ
+// è¼¸å…¥åƒæ•¸ï¼š
+//   - img: BGR å½©è‰²å½±åƒ (CV_32F 3-channel)
+//   - ccm: è‰²å½©æ ¡æ­£çŸ©é™£ (3x3 float)
+// è¼¸å‡ºåƒæ•¸ï¼š
+//   - out: è‰²å½©æ ¡æ­£å¾Œçš„å½±åƒ
+// å›å‚³ï¼š
+//   - ErrCode::Ok æˆåŠŸ
+//   - ErrCode::EmptyImage å½±åƒæˆ– CCM ç‚ºç©º
+//   - ErrCode::InvalidInput è¼¸å…¥æ ¼å¼ä¸æ”¯æ´
+//   - ErrCode::ColorCorrectionFailed è‰²å½©æ ¡æ­£å¤±æ•—
+//   - ErrCode::Exception ä¾‹å¤–ç™¼ç”Ÿ
+//   - ErrCode::Unknown æœªçŸ¥éŒ¯èª¤
 // ========================================
 ISP::ErrCode ISP::colorCorrection(const cv::Mat& img, const cv::Mat& ccm, cv::Mat& out) {
     try {
-        // ¨¾§b¡GÀË¬d¿é¤J
+        // é˜²å‘†ï¼šæª¢æŸ¥è¼¸å…¥
         if (img.empty()) {
             return ErrCode::EmptyImage;
         }
@@ -760,20 +991,20 @@ ISP::ErrCode ISP::colorCorrection(const cv::Mat& img, const cv::Mat& ccm, cv::Ma
             return ErrCode::InvalidInput;
         }
 
-        // ¤£­×§ï­ì¿é¤J¡A¥ı½Æ»s¨ì¤u§@ Mat
+        // ä¸ä¿®æ”¹åŸè¼¸å…¥ï¼Œå…ˆè¤‡è£½åˆ°å·¥ä½œ Mat
         cv::Mat tmp;
         img.convertTo(tmp, CV_32F);
 
         // 1. BGR -> RGB
         cv::cvtColor(tmp, tmp, cv::COLOR_BGR2RGB);
 
-        // 2. ®M¥Î CCM ¯x°}Âà´«
+        // 2. å¥—ç”¨ CCM çŸ©é™£è½‰æ›
         cv::transform(tmp, tmp, ccm);
 
-        // 3. RGB -> BGR (¦^¨ì OpenCV ®æ¦¡)
+        // 3. RGB -> BGR (å›åˆ° OpenCV æ ¼å¼)
         cv::cvtColor(tmp, tmp, cv::COLOR_RGB2BGR);
 
-        // 4. clip ¨ì 0~1 (¨¾¤î·¸¦ì)
+        // 4. clip åˆ° 0~1 (é˜²æ­¢æº¢ä½)
         cv::threshold(tmp, tmp, 0.0, 0.0, cv::THRESH_TOZERO); // clip <0
         cv::threshold(tmp, tmp, 1.0, 1.0, cv::THRESH_TRUNC);  // clip >1
 
@@ -790,28 +1021,172 @@ ISP::ErrCode ISP::colorCorrection(const cv::Mat& img, const cv::Mat& ccm, cv::Ma
     }
 }
 
+
+
+
+// =========================================================================
+// åŠŸèƒ½ï¼šäº®åº¦å°é½Šèˆ‡ä¸‰éšæ®µé›™åˆ†ä½æ•¸å¼·å¥æ­¸ä¸€åŒ– (CV_32FC3)
+// æ­¥é©Ÿï¼š
+//  1. P50 Gain Alignment (åŸºæ–¼ BT.709 Luma è¦–è¦ºä¸»é«”å°é½Š)
+//  2. P99 High-Light Normalization (å»é™¤ 1% æ¥µç«¯äº®é»ä¸¦æ­¸ä¸€åŒ–)
+//  3. 1%~99% Dynamic Range Stretching (åŸºæ–¼ CalLowHigh ä¹‹æ¥µè‡´å°æ¯”å»¶ä¼¸)
+// =========================================================================
+// =========================================================================
+// åŠŸèƒ½ï¼šäº®åº¦å°é½Šèˆ‡ä¸‰éšæ®µé›™åˆ†ä½æ•¸å¼·å¥æ­¸ä¸€åŒ– (ç›¸å®¹ CV_32FC1 / CV_32FC3)
+// =========================================================================
+ISP::ErrCode ISP::normalizeExposureByP50(cv::Mat& img_float, float Target_P50) {
+    try {
+        if (img_float.empty()) {
+            return ErrCode::EmptyImage;
+        }
+        int channels = img_float.channels();
+        if (img_float.depth() != CV_32F || (channels != 1 && channels != 3)) {
+            return ErrCode::InvalidInput;
+        }
+        if (Target_P50 <= 0.0f) {
+            return ErrCode::InvalidInput;
+        }
+
+        // =================================================================
+        // STAGE 1: è¨ˆç®—çµ±è¨ˆç”¨å–®é€šé“ Luma ä¸¦æ±‚å‡º P50 Base Gain
+        // =================================================================
+        cv::Mat luma_img;
+        if (channels == 3) {
+            luma_img.create(img_float.size(), CV_32FC1);
+            static const cv::Matx13f bgr_to_luma(0.0722f, 0.7152f, 0.2126f);
+            cv::transform(img_float, luma_img, bgr_to_luma);
+        }
+        else {
+            luma_img = img_float;
+        }
+
+        // ç¢ºä¿æŠ½æ¨£æ™‚è¨˜æ†¶é«”é€£çºŒ
+        cv::Mat continuous_luma = luma_img.isContinuous() ? luma_img : luma_img.clone();
+        const float* flat_ptr = continuous_luma.ptr<float>(0);
+        const int total_pixels = continuous_luma.cols * continuous_luma.rows;
+
+        std::vector<float> sample_pixels;
+        const int sample_step = std::max<float>(1, total_pixels / 50000);
+        sample_pixels.reserve((total_pixels + sample_step - 1) / sample_step);
+
+        for (int i = 0; i < total_pixels; i += sample_step) {
+            sample_pixels.push_back(flat_ptr[i]);
+        }
+
+        if (sample_pixels.empty()) {
+            return ErrCode::Ok;
+        }
+
+        // è‡ªé©æ‡‰ä¼°ç®—ç•¶å‰å½±åƒ [P5, P95] å‹•æ…‹ç¯„åœ
+        size_t p5_idx = sample_pixels.size() * 0.05;
+        size_t p95_idx = sample_pixels.size() * 0.95;
+
+        std::nth_element(sample_pixels.begin(), sample_pixels.begin() + p5_idx, sample_pixels.end());
+        float p5_val = sample_pixels[p5_idx];
+
+        std::nth_element(sample_pixels.begin() + p5_idx, sample_pixels.begin() + p95_idx, sample_pixels.end());
+        float p95_val = sample_pixels[p95_idx];
+
+        float dynamic_range = p95_val - p5_val;
+        float relative_dark_thresh = p5_val + 0.05f * dynamic_range;
+        float relative_bright_thresh = p5_val + 0.90f * dynamic_range;
+
+        std::vector<float> valid_pixels;
+        valid_pixels.reserve(sample_pixels.size());
+
+        for (float val : sample_pixels) {
+            if (dynamic_range <= 1e-7f || (val >= relative_dark_thresh && val <= relative_bright_thresh)) {
+                valid_pixels.push_back(val);
+            }
+        }
+
+        float p50_val = 0.0f;
+        if (!valid_pixels.empty()) {
+            size_t mid_idx = valid_pixels.size() / 2;
+            std::nth_element(valid_pixels.begin(), valid_pixels.begin() + mid_idx, valid_pixels.end());
+            p50_val = valid_pixels[mid_idx];
+        }
+        else {
+            size_t p50_idx = sample_pixels.size() * 0.50;
+            std::nth_element(sample_pixels.begin(), sample_pixels.begin() + p50_idx, sample_pixels.end());
+            p50_val = sample_pixels[p50_idx];
+        }
+
+        if (p50_val <= 1e-7f) {
+            return ErrCode::Ok;
+        }
+
+        float gain = Target_P50 / p50_val;
+        const float max_allowed_gain = 50.0f;
+        const float min_allowed_gain = 0.01f;
+        gain = std::clamp(gain, min_allowed_gain, max_allowed_gain);
+
+        // ä¹˜ä¸Š P50 Gain (3 é€šé“æˆ– 1 é€šé“çš†å¯ç›´æ¥ä½¿ç”¨ cv::Mat çš„ * é‹ç®—ç¬¦)
+        img_float = img_float * gain;
+
+        // =================================================================
+        // STAGE 2: é‡å°ä¹˜ä¸Š Gain å¾Œçš„å½±åƒé€²è¡Œ 99% ç™¾åˆ†ä½æ•¸ Normalization
+        // =================================================================
+        double stage2_low = 0.0, stage2_p99 = 0.0;
+        CalLowHigh(img_float, stage2_low, stage2_p99);
+
+        // å°‡ [0, P99] æ­¸ä¸€åŒ–åˆ° [0, 1.0]
+        if (stage2_p99 > 1e-6) {
+            img_float = img_float / static_cast<float>(stage2_p99);
+        }
+
+        // =================================================================
+        // STAGE 3: åŸ·è¡Œæœ€çµ‚ 1% ~ 99% Min-Max Contrast Normalization
+        // =================================================================
+        double final_p1 = 0.0, final_p99 = 1.0;
+        CalLowHigh(img_float, final_p1, final_p99);
+
+        double range_span = final_p99 - final_p1;
+        if (range_span > 1e-6) {
+            img_float = (img_float - final_p1) / range_span;
+        }
+
+        // æœ€çµ‚é‚Šç•Œå®‰å…¨è£åˆ‡ [0.0, 1.0]
+        cv::threshold(img_float, img_float, 0.0, 0.0, cv::THRESH_TOZERO);
+        cv::threshold(img_float, img_float, 1.0, 1.0, cv::THRESH_TRUNC);
+
+        return ErrCode::Ok;
+    }
+    catch (const std::exception& ex) {
+        std::cerr << "Exception in normalizeExposureByP50: " << ex.what() << std::endl;
+        return ErrCode::ToneMappingFailed;
+    }
+    catch (...) {
+        std::cerr << "Unknown exception in normalizeExposureByP50" << std::endl;
+        return ErrCode::Unknown;
+    }
+}
+
+
+
+
 // ========================================
-// ¥\¯à¡G¦â½Õ¬M®g»P Gamma ®Õ¥¿
-// »¡©ú¡G±N¼v¹³À³¥Î gamma ®Õ¥¿¥H½Õ¾ã«G«×©M¹ï¤ñ«×
-// ¨BÆJ¡G
-//   1. ÀË¬d¨Ã²M²zµL®Ä­È (­t­È¡BNaN¡B¹L¤j­È)
-//   2. ®M¥Î Gamma ®Õ¥¿ (pow(img, 1/gamma))
-//   3. Clip ¨ì 0~1 ½d³ò
-// ¿é¤J°Ñ¼Æ¡G
-//   - img: ¿é¤J¼v¹³ (·|³Q­×§ï)
-//   - gamma: Gamma ­È (¹w³] 1.0)
-// ¿é¥X°Ñ¼Æ¡G
-//   - img: ­×§ï«áªº¼v¹³
-// ¦^¶Ç¡G
-//   - ErrCode::Ok ¦¨¥\
-//   - ErrCode::EmptyImage ¼v¹³¬°ªÅ
-//   - ErrCode::ToneMappingFailed ¦â½Õ¬M®g¥¢±Ñ
-//   - ErrCode::Exception ¨Ò¥~µo¥Í
-//   - ErrCode::Unknown ¥¼ª¾¿ù»~
+// åŠŸèƒ½ï¼šè‰²èª¿æ˜ å°„èˆ‡ Gamma æ ¡æ­£
+// èªªæ˜ï¼šå°‡å½±åƒæ‡‰ç”¨ gamma æ ¡æ­£ä»¥èª¿æ•´äº®åº¦å’Œå°æ¯”åº¦
+// æ­¥é©Ÿï¼š
+//   1. æª¢æŸ¥ä¸¦æ¸…ç†ç„¡æ•ˆå€¼ (è² å€¼ã€NaNã€éå¤§å€¼)
+//   2. å¥—ç”¨ Gamma æ ¡æ­£ (pow(img, 1/gamma))
+//   3. Clip åˆ° 0~1 ç¯„åœ
+// è¼¸å…¥åƒæ•¸ï¼š
+//   - img: è¼¸å…¥å½±åƒ (æœƒè¢«ä¿®æ”¹)
+//   - gamma: Gamma å€¼ (é è¨­ 1.0)
+// è¼¸å‡ºåƒæ•¸ï¼š
+//   - img: ä¿®æ”¹å¾Œçš„å½±åƒ
+// å›å‚³ï¼š
+//   - ErrCode::Ok æˆåŠŸ
+//   - ErrCode::EmptyImage å½±åƒç‚ºç©º
+//   - ErrCode::ToneMappingFailed è‰²èª¿æ˜ å°„å¤±æ•—
+//   - ErrCode::Exception ä¾‹å¤–ç™¼ç”Ÿ
+//   - ErrCode::Unknown æœªçŸ¥éŒ¯èª¤
 // ========================================
 ISP::ErrCode ISP::applyToneMapping(cv::Mat& img_float, float gamma) {
     try {
-        // ¨¾§b¡GÀË¬d¿é¤J
+        // é˜²å‘†ï¼šæª¢æŸ¥è¼¸å…¥
         if (img_float.empty()) {
             return ErrCode::EmptyImage;
         }
@@ -821,26 +1196,26 @@ ISP::ErrCode ISP::applyToneMapping(cv::Mat& img_float, float gamma) {
 
         cv::Mat tmp = img_float.clone();
 
-        // 1. ©î¦¨³q¹D¨Ã²M²zµL®Ä­È
+        // 1. æ‹†æˆé€šé“ä¸¦æ¸…ç†ç„¡æ•ˆå€¼
         std::vector<cv::Mat> channels;
         cv::split(tmp, channels);
 
         for (auto& c : channels) {
-            // ­t­È³] 0 (¨¾¤î­t¼Æ¼vÅT gamma ­pºâ)
+            // è² å€¼è¨­ 0 (é˜²æ­¢è² æ•¸å½±éŸ¿ gamma è¨ˆç®—)
             c.setTo(0, c < 0);
 
-            // Á×§K NaN
+            // é¿å… NaN
             cv::patchNaNs(c, 0.0);
 
-            // Á×§K¹L¤j (¨¾¤î¯BÂI·¸¦ì)
+            // é¿å…éå¤§ (é˜²æ­¢æµ®é»æº¢ä½)
             cv::threshold(c, c, 1e6, 1e6, cv::THRESH_TRUNC);
         }
         cv::merge(channels, tmp);
 
-        // 2. ®M¥Î Gamma ®Õ¥¿
+        // 2. å¥—ç”¨ Gamma æ ¡æ­£
         cv::pow(tmp, 1.0 / gamma, img_float);
 
-        // 3. Clip ¨ì 0~1 ½d³ò
+        // 3. Clip åˆ° 0~1 ç¯„åœ
         cv::threshold(img_float, img_float, 0.0, 0.0, cv::THRESH_TOZERO); // clip <0
         cv::threshold(img_float, img_float, 1.0, 1.0, cv::THRESH_TRUNC);  // clip >1
 
@@ -857,36 +1232,36 @@ ISP::ErrCode ISP::applyToneMapping(cv::Mat& img_float, float gamma) {
 }
 
 // ========================================
-// ¥\¯à¡G¼v¹³¾U¤Æ
-// »¡©ú¡G¨Ï¥Î Unsharp Mask §Ş³N¶i¦æ¾U¤Æ
-// ¤½¦¡¡Goutput = img + (img - blurred) * level
-// ¿é¤J°Ñ¼Æ¡G
-//   - img: ¿é¤J¼v¹³ (·|³Q­×§ï)
-//   - Sharpening_Level: ¾U¤Æ±j«× (¹w³] 0)
-// ¿é¥X°Ñ¼Æ¡G
-//   - img: ­×§ï«áªº¼v¹³
-// ¦^¶Ç¡G
-//   - ErrCode::Ok ¦¨¥\
-//   - ErrCode::EmptyImage ¼v¹³¬°ªÅ
-//   - ErrCode::SharpeningFailed ¾U¤Æ¥¢±Ñ
-//   - ErrCode::Exception ¨Ò¥~µo¥Í
-//   - ErrCode::Unknown ¥¼ª¾¿ù»~
+// åŠŸèƒ½ï¼šå½±åƒéŠ³åŒ–
+// èªªæ˜ï¼šä½¿ç”¨ Unsharp Mask æŠ€è¡“é€²è¡ŒéŠ³åŒ–
+// å…¬å¼ï¼šoutput = img + (img - blurred) * level
+// è¼¸å…¥åƒæ•¸ï¼š
+//   - img: è¼¸å…¥å½±åƒ (æœƒè¢«ä¿®æ”¹)
+//   - Sharpening_Level: éŠ³åŒ–å¼·åº¦ (é è¨­ 0)
+// è¼¸å‡ºåƒæ•¸ï¼š
+//   - img: ä¿®æ”¹å¾Œçš„å½±åƒ
+// å›å‚³ï¼š
+//   - ErrCode::Ok æˆåŠŸ
+//   - ErrCode::EmptyImage å½±åƒç‚ºç©º
+//   - ErrCode::SharpeningFailed éŠ³åŒ–å¤±æ•—
+//   - ErrCode::Exception ä¾‹å¤–ç™¼ç”Ÿ
+//   - ErrCode::Unknown æœªçŸ¥éŒ¯èª¤
 // ========================================
 ISP::ErrCode ISP::sharpening(cv::Mat& img, double Sharpening_Level) {
     try {
-        // ¨¾§b¡GÀË¬d¿é¤J
+        // é˜²å‘†ï¼šæª¢æŸ¥è¼¸å…¥
         if (img.empty()) {
             return ErrCode::EmptyImage;
         }
 
-        // 1. «Ø¥ß°ª´µ¼Ò½kª©¥»
+        // 1. å»ºç«‹é«˜æ–¯æ¨¡ç³Šç‰ˆæœ¬
         cv::Mat blurred;
         cv::GaussianBlur(img, blurred, cv::Size(0, 0), 3);
 
-        // 2. ­pºâ®t­È¨ÃÅ|¥[ (Unsharp Mask)
+        // 2. è¨ˆç®—å·®å€¼ä¸¦ç–ŠåŠ  (Unsharp Mask)
         cv::addWeighted(img, 1 + Sharpening_Level, blurred, -Sharpening_Level, 0, img);
 
-        // 3. Clip ¨ì 0~1 ½d³ò
+        // 3. Clip åˆ° 0~1 ç¯„åœ
         cv::threshold(img, img, 0.0, 0.0, cv::THRESH_TOZERO); // clip <0
         cv::threshold(img, img, 1.0, 1.0, cv::THRESH_TRUNC);  // clip >1
 
@@ -903,38 +1278,38 @@ ISP::ErrCode ISP::sharpening(cv::Mat& img, double Sharpening_Level) {
 }
 
 // ========================================
-// ¥\¯à¡G¹wÄı»P¿é¥X¼v¹³
-// »¡©ú¡G±N¼v¹³Âà¬° 8-bit ¨ÃÅã¥Ü©MÀx¦s
-// ¤ä´©ªº¿é¤J®æ¦¡¡GCV_8U, CV_16U, CV_32F, CV_32S
-// ¿é¤J°Ñ¼Æ¡G
-//   - img: ¿é¤J¼v¹³
-//   - title: µøµ¡¼ĞÃD»PÀÉ®×¦WºÙ«eºó
-//   - scale: ÁY©ñ¤ñ¨Ò (¹w³] 1.0)
-//   - autoContrast: ¬O§_¦Û°Ê¹ï¤ñ«×½Õ¾ã (¹w³] true)
-// ¦^¶Ç¡G
-//   - ErrCode::Ok ¦¨¥\
-//   - ErrCode::EmptyImage ¼v¹³¬°ªÅ
-//   - ErrCode::InvalidInput ¤£¤ä´©ªº¼v¹³²`«×
-//   - ErrCode::PreviewFailed ¹wÄı¥¢±Ñ
-//   - ErrCode::Exception ¨Ò¥~µo¥Í
-//   - ErrCode::Unknown ¥¼ª¾¿ù»~
+// åŠŸèƒ½ï¼šé è¦½èˆ‡è¼¸å‡ºå½±åƒ
+// èªªæ˜ï¼šå°‡å½±åƒè½‰ç‚º 8-bit ä¸¦é¡¯ç¤ºå’Œå„²å­˜
+// æ”¯æ´çš„è¼¸å…¥æ ¼å¼ï¼šCV_8U, CV_16U, CV_32F, CV_32S
+// è¼¸å…¥åƒæ•¸ï¼š
+//   - img: è¼¸å…¥å½±åƒ
+//   - title: è¦–çª—æ¨™é¡Œèˆ‡æª”æ¡ˆåç¨±å‰ç¶´
+//   - scale: ç¸®æ”¾æ¯”ä¾‹ (é è¨­ 1.0)
+//   - autoContrast: æ˜¯å¦è‡ªå‹•å°æ¯”åº¦èª¿æ•´ (é è¨­ true)
+// å›å‚³ï¼š
+//   - ErrCode::Ok æˆåŠŸ
+//   - ErrCode::EmptyImage å½±åƒç‚ºç©º
+//   - ErrCode::InvalidInput ä¸æ”¯æ´çš„å½±åƒæ·±åº¦
+//   - ErrCode::PreviewFailed é è¦½å¤±æ•—
+//   - ErrCode::Exception ä¾‹å¤–ç™¼ç”Ÿ
+//   - ErrCode::Unknown æœªçŸ¥éŒ¯èª¤
 // ========================================
 ISP::ErrCode ISP::showPreview(const cv::Mat& img, const std::string& title, double scale, bool autoContrast) {
     try {
-        // ¨¾§b¡GÀË¬d¿é¤J
+        // é˜²å‘†ï¼šæª¢æŸ¥è¼¸å…¥
         if (img.empty()) {
             return ErrCode::EmptyImage;
         }
 
         cv::Mat preview8;
 
-        // 1. ®Ú¾Ú¿é¤J²`«×¶i¦æÂà´«
+        // 1. æ ¹æ“šè¼¸å…¥æ·±åº¦é€²è¡Œè½‰æ›
         if (img.depth() == CV_8U) {
-            // 8-bit ª½±µ¨Ï¥Î
+            // 8-bit ç›´æ¥ä½¿ç”¨
             preview8 = img.clone();
         }
         else if (img.depth() == CV_16U) {
-            // 16-bit ¡÷ 8-bit
+            // 16-bit â†’ 8-bit
             if (autoContrast) {
                 cv::normalize(img, preview8, 0, 255, cv::NORM_MINMAX, CV_8U);
             }
@@ -943,37 +1318,37 @@ ISP::ErrCode ISP::showPreview(const cv::Mat& img, const std::string& title, doub
             }
         }
         else if (img.depth() == CV_32F || img.depth() == CV_32S) {
-            // 32-bit ¡÷ 8-bit
+            // 32-bit â†’ 8-bit
             if (autoContrast) {
                 cv::Mat tmp = img.clone();
 
-                // ­pºâ 1% ¨ì 99% ªº½d³ò¥Î©ó¹ï¤ñ«×½Õ¾ã
+                // è¨ˆç®— 1% åˆ° 99% çš„ç¯„åœç”¨æ–¼å°æ¯”åº¦èª¿æ•´
                 double minVal, maxVal;
                 CalLowHigh(tmp, minVal, maxVal);
 
-                tmp = (tmp - minVal) / (maxVal - minVal);  // ¥¿³W¤Æ¨ì 0~1
+                tmp = (tmp - minVal) / (maxVal - minVal);  // æ­£è¦åŒ–åˆ° 0~1
                 tmp.convertTo(preview8, CV_8U, 255.0);
             }
             else {
-                img.convertTo(preview8, CV_8U, 255.0); // °²³]¿é¤J¦b [0,1] ½d³ò
+                img.convertTo(preview8, CV_8U, 255.0); // å‡è¨­è¼¸å…¥åœ¨ [0,1] ç¯„åœ
             }
         }
         else {
-            // ¤£¤ä´©ªº²`«×
+            // ä¸æ”¯æ´çš„æ·±åº¦
             return ErrCode::InvalidInput;
         }
 
-        // 2. ®Ú¾Ú scale ¶i¦æÁY©ñ
+        // 2. æ ¹æ“š scale é€²è¡Œç¸®æ”¾
         if (scale != 1.0) {
             cv::Mat temp;
             cv::resize(preview8, temp, cv::Size(), scale, scale, cv::INTER_AREA);
             preview8 = temp;
         }
 
-        // 3. Àx¦s¬°ÀÉ®×
-        cv::imwrite(std::to_string(ImgCount++) + "_" + title + ".tiff", preview8);
+        // 3. å„²å­˜ç‚ºæª”æ¡ˆ
+        //cv::imwrite(std::to_string(ImgCount++) + "_" + title + ".tiff", preview8);
 
-        // 4. Åã¥Ü¼v¹³
+        // 4. é¡¯ç¤ºå½±åƒ
         cv::imshow(title, preview8);
         cv::waitKey(0);
 
@@ -990,50 +1365,55 @@ ISP::ErrCode ISP::showPreview(const cv::Mat& img, const std::string& title, doub
 }
 
 // ========================================
-// »²§U¨ç¼Æ¡G­pºâ¼v¹³ªº§C­È©M°ª­È¡]1% ©M 99% ¤À¦ìÂI¡^
+// è¼”åŠ©å‡½æ•¸ï¼šè¨ˆç®—å½±åƒçš„ä½å€¼å’Œé«˜å€¼ï¼ˆ1% å’Œ 99% åˆ†ä½é»ï¼‰
 // ========================================
 static void CalLowHigh(const cv::Mat& img, double& lowVal, double& highVal)
 {
-    // ªì©l¤Æ¿é¥X
     lowVal = 0.0;
     highVal = 0.0;
 
     if (img.empty()) return;
 
-    // ¨Ï¥Î single-channel µø¹Ï¡]Á×§K channel ­p¼Æ²V²c¡^
-    cv::Mat single = (img.channels() == 1) ? img : img.reshape(1);
+    // 1. å®‰å…¨è½‰ç‚ºå–®é€šé“é€²è¡Œçµ±è¨ˆ
+    cv::Mat single;
+    if (img.channels() == 3) {
+        // BGR -> Luminance (BT.709)
+        static const cv::Matx13f bgr_to_luma(0.0722f, 0.7152f, 0.2126f);
+        cv::transform(img, single, bgr_to_luma);
+    }
+    else if (img.channels() == 1) {
+        single = img;
+    }
+    else {
+        return; // ä¸æ”¯æ´çš„é€šé“æ•¸
+    }
 
+    // 2. è¨˜æ†¶é«”é€£çºŒæ€§é˜²ç¦¦ (é˜²æ­¢ ROI è£åˆ‡å°è‡´ reshape/calcHist è®€åˆ°åƒåœ¾è¨˜æ†¶é«”)
+    if (!single.isContinuous()) {
+        single = single.clone();
+    }
+
+    // 3. å–å¾—æ¥µå€¼
     double minValD = 0.0, maxValD = 0.0;
     cv::minMaxLoc(single, &minValD, &maxValD);
 
     float minF = static_cast<float>(minValD);
     float maxF = static_cast<float>(maxValD);
 
-    if (maxF <= minF) {
+    if (maxF <= minF + 1e-7f) {
         lowVal = minF;
         highVal = maxF;
         return;
     }
 
-    // ­Y¼v¹³¤w³QÀ£ÁY¨ì [0,1]¡A±j¨î¨Ï¥Î 4096 bins¡F§_«h®Ú¾Ú°ÊºA½d³ò¨M©w bin ¼Æ¨Ã clamp ¨ì [1,4096]
-    int histSize;
-    if (minF >= 0.0f && maxF <= 1.0f) {
-        histSize = 4096;
-    }
-    else {
-        // ¥H range ªø«×¬°°òÂ¦¡A¦ı­­¨î³Ì¤j 4096
-        histSize = static_cast<int>(std::ceil(maxF - minF));
-        if (histSize < 1) histSize = 1;
-        if (histSize > 4096) histSize = 4096;
-    }
-
+    // 4. å¼·åˆ¶ä½¿ç”¨é«˜è§£æåº¦ 4096 bins (é¿å… maxF > 1.0 æ™‚ bin æ•¸æ‰åˆ°å‰©å¹¾åå€‹)
+    const int histSize = 4096;
     float rangeArr[2] = { minF, maxF };
     const float* histRange[] = { rangeArr };
     int channels[] = { 0 };
-    int histSizes[] = { histSize };
 
     cv::Mat hist;
-    cv::calcHist(&single, 1, channels, cv::Mat(), hist, 1, histSizes, histRange);
+    cv::calcHist(&single, 1, channels, cv::Mat(), hist, 1, &histSize, histRange);
 
     double total = static_cast<double>(single.total());
     if (total <= 0.0) {
@@ -1042,19 +1422,20 @@ static void CalLowHigh(const cv::Mat& img, double& lowVal, double& highVal)
         return;
     }
 
-    // ²Ö¿nª½¤è¹Ï§ä 1% / 99%
+    // 5. ç´¯ç©ç›´æ–¹åœ–æ‰¾ 1% / 99%
     double acc = 0.0;
     bool foundLow = false;
+    double bin_width = static_cast<double>(maxF - minF) / histSize;
+
     for (int i = 0; i < histSize; ++i) {
         acc += hist.at<float>(i);
         double frac = acc / total;
         if (!foundLow && frac >= 0.01) {
-            // ¨Ï¥Î bin ¤¤¤ß¦ôºâ¹ïÀ³­È
-            lowVal = minF + (static_cast<double>(i) + 0.5) * (maxF - minF) / histSize;
+            lowVal = minF + (static_cast<double>(i) + 0.5) * bin_width;
             foundLow = true;
         }
         if (frac >= 0.99) {
-            highVal = minF + (static_cast<double>(i) + 0.5) * (maxF - minF) / histSize;
+            highVal = minF + (static_cast<double>(i) + 0.5) * bin_width;
             break;
         }
     }
@@ -1064,7 +1445,7 @@ static void CalLowHigh(const cv::Mat& img, double& lowVal, double& highVal)
 }
 
 // ========================================
-// »²§U¨ç¼Æ¡G­pºâ³q¹D¤¤«e N% ³Ì«G¹³¯Àªº¥­§¡­È
+// è¼”åŠ©å‡½æ•¸ï¼šè¨ˆç®—é€šé“ä¸­å‰ N% æœ€äº®åƒç´ çš„å¹³å‡å€¼
 // ========================================
 static double getBiggestMean(const cv::Mat& channel, double ratio)
 {

@@ -162,6 +162,8 @@ namespace ISP_Comparision
             this.txtSourcePath = new System.Windows.Forms.TextBox();
             this.btnBrowseSource = new System.Windows.Forms.Button();
             this.lblSource = new System.Windows.Forms.Label();
+            this.nud_P50 = new System.Windows.Forms.NumericUpDown();
+            this.lbl_P50 = new System.Windows.Forms.Label();
             this.gbPipeline1.SuspendLayout();
             this.gbPipeline2.SuspendLayout();
             ((System.ComponentModel.ISupportInitialize)(this.pbDisplay1)).BeginInit();
@@ -170,6 +172,7 @@ namespace ISP_Comparision
             ((System.ComponentModel.ISupportInitialize)(this.pbToneCurve1)).BeginInit();
             this.panelMetrics2.SuspendLayout();
             ((System.ComponentModel.ISupportInitialize)(this.pbToneCurve2)).BeginInit();
+            ((System.ComponentModel.ISupportInitialize)(this.nud_P50)).BeginInit();
             this.SuspendLayout();
             // 
             // gbPipeline1
@@ -244,6 +247,7 @@ namespace ISP_Comparision
             // cbLensShading1
             // 
             this.cbLensShading1.DropDownStyle = System.Windows.Forms.ComboBoxStyle.DropDownList;
+            this.cbLensShading1.Enabled = false;
             this.cbLensShading1.Font = new System.Drawing.Font("微軟正黑體", 12F, System.Drawing.FontStyle.Regular, System.Drawing.GraphicsUnit.Point, ((byte)(136)));
             this.cbLensShading1.Items.AddRange(new object[] {
             "None",
@@ -267,6 +271,7 @@ namespace ISP_Comparision
             // cbBadPixel1
             // 
             this.cbBadPixel1.DropDownStyle = System.Windows.Forms.ComboBoxStyle.DropDownList;
+            this.cbBadPixel1.Enabled = false;
             this.cbBadPixel1.Font = new System.Drawing.Font("微軟正黑體", 12F, System.Drawing.FontStyle.Regular, System.Drawing.GraphicsUnit.Point, ((byte)(136)));
             this.cbBadPixel1.Items.AddRange(new object[] {
             "None",
@@ -290,6 +295,7 @@ namespace ISP_Comparision
             // cbLinearity1
             // 
             this.cbLinearity1.DropDownStyle = System.Windows.Forms.ComboBoxStyle.DropDownList;
+            this.cbLinearity1.Enabled = false;
             this.cbLinearity1.Font = new System.Drawing.Font("微軟正黑體", 12F, System.Drawing.FontStyle.Regular, System.Drawing.GraphicsUnit.Point, ((byte)(136)));
             this.cbLinearity1.Items.AddRange(new object[] {
             "None",
@@ -424,11 +430,11 @@ namespace ISP_Comparision
             this.cbTone1.Name = "cbTone1";
             this.cbTone1.Size = new System.Drawing.Size(200, 28);
             this.cbTone1.TabIndex = 17;
-            this.cbTone1.SelectedIndexChanged += new System.EventHandler(this.cbTone1_SelectedIndexChanged);
             // 
             // cbDistort1
             // 
             this.cbDistort1.DropDownStyle = System.Windows.Forms.ComboBoxStyle.DropDownList;
+            this.cbDistort1.Enabled = false;
             this.cbDistort1.Font = new System.Drawing.Font("微軟正黑體", 12F, System.Drawing.FontStyle.Regular, System.Drawing.GraphicsUnit.Point, ((byte)(136)));
             this.cbDistort1.Items.AddRange(new object[] {
             "None",
@@ -562,6 +568,7 @@ namespace ISP_Comparision
             // cbLensShading2
             // 
             this.cbLensShading2.DropDownStyle = System.Windows.Forms.ComboBoxStyle.DropDownList;
+            this.cbLensShading2.Enabled = false;
             this.cbLensShading2.Font = new System.Drawing.Font("微軟正黑體", 12F, System.Drawing.FontStyle.Regular, System.Drawing.GraphicsUnit.Point, ((byte)(136)));
             this.cbLensShading2.ItemHeight = 20;
             this.cbLensShading2.Items.AddRange(new object[] {
@@ -586,6 +593,7 @@ namespace ISP_Comparision
             // cbBadPixel2
             // 
             this.cbBadPixel2.DropDownStyle = System.Windows.Forms.ComboBoxStyle.DropDownList;
+            this.cbBadPixel2.Enabled = false;
             this.cbBadPixel2.Font = new System.Drawing.Font("微軟正黑體", 12F, System.Drawing.FontStyle.Regular, System.Drawing.GraphicsUnit.Point, ((byte)(136)));
             this.cbBadPixel2.ItemHeight = 20;
             this.cbBadPixel2.Items.AddRange(new object[] {
@@ -610,6 +618,7 @@ namespace ISP_Comparision
             // cbLinearity2
             // 
             this.cbLinearity2.DropDownStyle = System.Windows.Forms.ComboBoxStyle.DropDownList;
+            this.cbLinearity2.Enabled = false;
             this.cbLinearity2.Font = new System.Drawing.Font("微軟正黑體", 12F, System.Drawing.FontStyle.Regular, System.Drawing.GraphicsUnit.Point, ((byte)(136)));
             this.cbLinearity2.ItemHeight = 20;
             this.cbLinearity2.Items.AddRange(new object[] {
@@ -754,6 +763,7 @@ namespace ISP_Comparision
             // cbDistort2
             // 
             this.cbDistort2.DropDownStyle = System.Windows.Forms.ComboBoxStyle.DropDownList;
+            this.cbDistort2.Enabled = false;
             this.cbDistort2.Font = new System.Drawing.Font("微軟正黑體", 12F, System.Drawing.FontStyle.Regular, System.Drawing.GraphicsUnit.Point, ((byte)(136)));
             this.cbDistort2.ItemHeight = 20;
             this.cbDistort2.Items.AddRange(new object[] {
@@ -962,7 +972,7 @@ namespace ISP_Comparision
             // txtSourcePath
             // 
             this.txtSourcePath.Font = new System.Drawing.Font("微軟正黑體", 12F, System.Drawing.FontStyle.Regular, System.Drawing.GraphicsUnit.Point, ((byte)(136)));
-            this.txtSourcePath.Location = new System.Drawing.Point(134, 13);
+            this.txtSourcePath.Location = new System.Drawing.Point(142, 13);
             this.txtSourcePath.Margin = new System.Windows.Forms.Padding(0);
             this.txtSourcePath.Name = "txtSourcePath";
             this.txtSourcePath.ReadOnly = true;
@@ -972,7 +982,7 @@ namespace ISP_Comparision
             // btnBrowseSource
             // 
             this.btnBrowseSource.Font = new System.Drawing.Font("微軟正黑體", 12F, System.Drawing.FontStyle.Regular, System.Drawing.GraphicsUnit.Point, ((byte)(136)));
-            this.btnBrowseSource.Location = new System.Drawing.Point(897, 13);
+            this.btnBrowseSource.Location = new System.Drawing.Point(905, 13);
             this.btnBrowseSource.Name = "btnBrowseSource";
             this.btnBrowseSource.Size = new System.Drawing.Size(90, 30);
             this.btnBrowseSource.TabIndex = 2;
@@ -988,9 +998,47 @@ namespace ISP_Comparision
             this.lblSource.TabIndex = 0;
             this.lblSource.Text = "Source Image :";
             // 
+            // nud_P50
+            // 
+            this.nud_P50.DecimalPlaces = 2;
+            this.nud_P50.Font = new System.Drawing.Font("微軟正黑體", 12F, System.Drawing.FontStyle.Regular, System.Drawing.GraphicsUnit.Point, ((byte)(136)));
+            this.nud_P50.Increment = new decimal(new int[] {
+            1,
+            0,
+            0,
+            131072});
+            this.nud_P50.Location = new System.Drawing.Point(16, 1034);
+            this.nud_P50.Maximum = new decimal(new int[] {
+            1,
+            0,
+            0,
+            0});
+            this.nud_P50.Name = "nud_P50";
+            this.nud_P50.Size = new System.Drawing.Size(120, 29);
+            this.nud_P50.TabIndex = 10;
+            this.nud_P50.Value = new decimal(new int[] {
+            18,
+            0,
+            0,
+            131072});
+            // 
+            // lbl_P50
+            // 
+            this.lbl_P50.Anchor = System.Windows.Forms.AnchorStyles.Left;
+            this.lbl_P50.Font = new System.Drawing.Font("微軟正黑體", 11.25F, System.Drawing.FontStyle.Regular, System.Drawing.GraphicsUnit.Point, ((byte)(136)));
+            this.lbl_P50.Location = new System.Drawing.Point(12, 1000);
+            this.lbl_P50.Name = "lbl_P50";
+            this.lbl_P50.Size = new System.Drawing.Size(258, 24);
+            this.lbl_P50.TabIndex = 21;
+            this.lbl_P50.Text = "P50 Brightness Target (0~1)";
+            this.lbl_P50.TextAlign = System.Drawing.ContentAlignment.MiddleLeft;
+            // 
             // DemoForm
             // 
-            this.ClientSize = new System.Drawing.Size(1609, 994);
+            this.BackColor = System.Drawing.SystemColors.AppWorkspace;
+            this.ClientSize = new System.Drawing.Size(1609, 1076);
+            this.Controls.Add(this.lbl_P50);
+            this.Controls.Add(this.nud_P50);
             this.Controls.Add(this.lblSource);
             this.Controls.Add(this.txtSourcePath);
             this.Controls.Add(this.btnBrowseSource);
@@ -1010,9 +1058,13 @@ namespace ISP_Comparision
             ((System.ComponentModel.ISupportInitialize)(this.pbToneCurve1)).EndInit();
             this.panelMetrics2.ResumeLayout(false);
             ((System.ComponentModel.ISupportInitialize)(this.pbToneCurve2)).EndInit();
+            ((System.ComponentModel.ISupportInitialize)(this.nud_P50)).EndInit();
             this.ResumeLayout(false);
             this.PerformLayout();
 
         }
+
+        private NumericUpDown nud_P50;
+        private Label lbl_P50;
     }
 }

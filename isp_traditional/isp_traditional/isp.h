@@ -4,6 +4,7 @@
 #include <string>
 #include <vector>
 #include <stdexcept>
+#include <onnxruntime_cxx_api.h>
 
 class ISP
 {
@@ -26,7 +27,7 @@ public:
 
     // Enum 定義
     enum class AWB_Method { Default = 1, GrayWorld = 2, WhitePoint = 3 };
-    enum class Demosaic_Method { CCM = 1, AI = 2 };
+    enum class Demosaic_Method { Default = 1, AI = 2 };
 
     // Constructor
     ISP() {
@@ -40,8 +41,8 @@ public:
         bool_params["DoSharpen"] = true;         // 是否執行銳化
 
         // ----------------- Enum 參數 map -----------------
-        enumAWB_params["AWB_Method"] = AWB_Method::Default;       // 預設 AWB 方法
-        enumDemosaic_params["Demosaic_Method"] = Demosaic_Method::AI; // 預設 demosaic 方法
+        enumAWB_params["AWB_Method"] = AWB_Method::WhitePoint;       // 預設 AWB 方法
+        enumDemosaic_params["Demosaic_Method"] = Demosaic_Method::Default; // 預設 demosaic 方法
     }
 
     // ----------------- Bool 參數操作 -----------------
@@ -99,6 +100,9 @@ public:
     // 套用白平衡增益
     ErrCode ApplyAWBGain(cv::Mat& img, int height, int width, double gainR, double gainG, double gainB);
 
+    // 依照 P50 亮度做曝光校正
+    ErrCode normalizeExposureByP50(cv::Mat& img, float Target_P50);
+    
     // 色調映射與Gamma校正
     ErrCode applyToneMapping(cv::Mat& img, float gamma = 1);
 
@@ -125,8 +129,15 @@ private:
     std::unordered_map<std::string, Demosaic_Method> enumDemosaic_params;
 
     // ============================
-    // AI Demosaic (ONNX via OpenCV DNN)
+    // AI Demosaic
     // ============================
-    cv::dnn::Net ai_net;           // 載入的 ONNX 模型
     std::string ai_model_path;     // 目前載入的模型路徑
+
+    // ONNX Runtime 核心成員
+    // 使用 unique_ptr 延遲初始化，避免全域/建構時未準備好 API 的崩潰問題
+    std::unique_ptr<Ort::Env> ort_env;
+    std::unique_ptr<Ort::Session> ort_session;
+
+    std::string ort_input_name;
+    std::string ort_output_name;
 };

@@ -86,4 +86,9 @@
     <None Include="App.config" />
   </ItemGroup>
   <Import Project="$(MSBuildToolsPath)\Microsoft.CSharp.targets" />
+  <PropertyGroup>
+    <PostBuildEvent>xcopy "$(SolutionDir)ISP_Comparision\models\*.*" "$(TargetDir)models\" /Y /I /D /E
+xcopy "$(SolutionDir)ISP_Comparision\DLL\*.*" "$(TargetDir)" /Y /I /D
+exit /b 0</PostBuildEvent>
+  </PropertyGroup>
 </Project>

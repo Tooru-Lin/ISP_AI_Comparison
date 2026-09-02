@@ -180,6 +180,13 @@ namespace ISP_CSharp
 
         // 套用 pre_mul
         [DllImport(DLL_NAME, CallingConvention = CallingConvention.Cdecl)]
+        public static extern ISP_ErrCode ISP_NormalizeExposureByP50(
+            IntPtr ctx,
+            ref ISP_Mat img,
+            float gammaT_P50);
+
+        // 套用 pre_mul
+        [DllImport(DLL_NAME, CallingConvention = CallingConvention.Cdecl)]
         public static extern ISP_ErrCode ISP_ApplyPreMul(
             IntPtr ctx,
             ref ISP_Mat img,
@@ -545,6 +552,14 @@ namespace ISP_CSharp
                 gainR,
                 gainG,
                 gainB);
+        }
+
+        /// <summary>
+        /// 使用 P50 目標值進行曝光正規化
+        /// </summary>
+        public ISP_ErrCode NormalizeExposureByP50(ref ISP_Mat img, float Target_P50)
+        {
+            return ISP_NativeMethods.ISP_NormalizeExposureByP50(ctx, ref img, Target_P50);
         }
 
         /// <summary>

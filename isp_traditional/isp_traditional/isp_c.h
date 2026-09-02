@@ -178,6 +178,13 @@ extern "C" {
         double gainG,
         double gainB);
 
+    // 使用 P50 亮度做曝光校正
+    ISP_API ISP_ErrCode ISP_NormalizeExposureByP50(
+        ISP_Context* ctx,
+        ISP_Mat* img,
+        float Target_P50);
+
+
     // 色調映射
     ISP_API ISP_ErrCode ISP_ApplyToneMapping(
         ISP_Context* ctx,

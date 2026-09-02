@@ -425,6 +425,32 @@ ISP_ErrCode ISP_ApplyAWBGain(
     }
 }
 
+ISP_ErrCode ISP_NormalizeExposureByP50(
+    ISP_Context* ctx,
+    ISP_Mat* raw,
+    float Target_P50) {
+    try {
+        if (ctx == nullptr || raw == nullptr) {
+            return ISP_InvalidInput;
+        }
+
+        ISP* isp = reinterpret_cast<ISP*>(ctx->isp_instance);
+        cv::Mat raw_mat = isp_mat_to_cvmat(raw);
+
+        ISP::ErrCode ec = isp->normalizeExposureByP50(raw_mat, Target_P50);
+
+        // ½Æ»s­×§ï¦^ ISP_Mat
+        memcpy(raw->data, raw_mat.data, raw->step * raw->rows);
+
+        return static_cast<ISP_ErrCode>(ec);
+    }
+    catch (const std::exception& ex) {
+        std::cerr << "Exception in ISP_NormalizeExposureByP50: " << ex.what() << std::endl;
+        return ISP_Exception;
+    }
+}
+
+
 ISP_ErrCode ISP_ApplyToneMapping(
     ISP_Context* ctx,
     ISP_Mat* img,

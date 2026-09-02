@@ -3,6 +3,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Net.NetworkInformation;
 
 namespace ISP_Comparision
 {
@@ -11,8 +12,8 @@ namespace ISP_Comparision
     public enum enumLensShading { None = 0, Default = 1 }
     public enum enumBadPixelCorrection { None = 0, Default = 1 }
     public enum enumLinearityCorrection { None = 0, Default = 1 }
-    public enum enumDemosaic { None = 0, Default = 1, Ai_Demosaic = 2 }
-    public enum enumAutoWhiteBalance { None = 0, Default = 1 }
+    public enum enumDemosaic { None = 0, Default = 1, Ai_RawModel = 2, Ai_OptimizedModel, Ai_Fp16Model }
+    public enum enumAutoWhiteBalance { None = 0, Default = 1, GrayWorld = 2, WhitePatch = 3 }
     public enum enumColorCorrection { None = 0, Default = 1 }
     public enum enumNoiseReduction { None = 0, Default = 1 }
     public enum enumToneMapping { None = 0, Default = 1 }
@@ -20,7 +21,7 @@ namespace ISP_Comparision
     public enum enumSharpening { None = 0, Default = 1 }
 
     // 新增：AI 模型選擇 enum
-    public enum enumAiModelType { ModelRaw = 0, ModelOptimized = 1, ModelInt8 = 2 }
+    public enum enumAiModelType { ModelRaw = 0, ModelOptimized = 1, ModelFloat16 = 2 }
 
     // Pipeline key 改成 enum
     public enum PipelineKey
@@ -79,6 +80,7 @@ namespace ISP_Comparision
                 { PipelineKey.Sharpening, enumSharpening.Default },
                 { PipelineKey.AiModelType, enumAiModelType.ModelOptimized }  // 預設用優化模型
             };
+
         }
 
         // ---------- 強型別取/設 方法 (enum key) ----------
@@ -229,13 +231,13 @@ namespace ISP_Comparision
             switch (modelType)
             {
                 case enumAiModelType.ModelRaw:
-                    return Path.Combine(baseDir, "model_raw.onnx");
+                    return Path.Combine(baseDir, "models/model_raw.onnx");
                 case enumAiModelType.ModelOptimized:
-                    return Path.Combine(baseDir, "model_optimized.onnx");
-                case enumAiModelType.ModelInt8:
-                    return Path.Combine(baseDir, "model_int8.onnx");
+                    return Path.Combine(baseDir, "models/model_optimized.onnx");
+                case enumAiModelType.ModelFloat16:
+                    return Path.Combine(baseDir, "models/model_fp16.onnx");
                 default:
-                    return Path.Combine(baseDir, "model_optimized.onnx");
+                    return Path.Combine(baseDir, "models/model_optimized.onnx");
             }
         }
 
@@ -277,7 +279,7 @@ namespace ISP_Comparision
             return ApplyAiDemosaicOnnx(modelPath, ref raw, out outColor);
         }
 
-        public int Measure(string ImagePath, out ISP_Mat Output_Color, out ISP_Mat Output_Channel)
+        public int Measure(string ImagePath, out ISP_Mat Output_Color, out ISP_Mat Output_Channel, float Target_P50 = 0.18f)
         {
             int ErrCode = 0;
             string ErrMsg = "";
@@ -315,7 +317,7 @@ namespace ISP_Comparision
                     }
 
                     // ========================================
-                    // 4. 黑白電平校正
+                    // 1. 黑白電平校正
                     // ========================================
                     mPipeProcess.TryGetValue(PipelineKey.BlackWhiteLevel, out obj);
                     switch (obj)
@@ -331,17 +333,27 @@ namespace ISP_Comparision
                     }
 
                     // ========================================
-                    // 5. 白平衡
+                    // 2. 白平衡
                     // ========================================
                     mPipeProcess.TryGetValue(PipelineKey.AutoWhiteBalance, out obj);
+                    double gainR = 0, gainG = 0, gainB = 0;
                     switch (obj)
                     {
                         case enumAutoWhiteBalance.Default:
-                            double gainR = cam_mul[0] / cam_mul[1];
-                            double gainG = 1.0;
-                            double gainB = cam_mul[2] / cam_mul[1];
-
-                            ec = isp.ApplyAWBGain(ref Output_Channel, height, width, gainR, gainG, gainB);
+                            gainR = cam_mul[0] / cam_mul[1];
+                            gainG = 1.0;
+                            gainB = cam_mul[2] / cam_mul[1];
+                            break;
+                        case enumAutoWhiteBalance.GrayWorld:
+                            ec = isp.CalAWBGain_GrayWorld(ref Output_Channel, out gainR, out gainG, out gainB);
+                            if (ec != ISP_ErrCode.Ok)
+                            {
+                                ErrMsg = $"AWB failed: {ec}";
+                                return ErrCode;
+                            }
+                            break;
+                        case enumAutoWhiteBalance.WhitePatch:
+                            ec = isp.CalAWBGain_WhitePatch(ref Output_Channel, out gainR, out gainG, out gainB);
                             if (ec != ISP_ErrCode.Ok)
                             {
                                 ErrMsg = $"AWB failed: {ec}";
@@ -349,10 +361,17 @@ namespace ISP_Comparision
                             }
                             break;
                     }
+                    ec = isp.ApplyAWBGain(ref Output_Channel, height, width, gainR, gainG, gainB);
+                    if (ec != ISP_ErrCode.Ok)
+                    {
+                        ErrMsg = $"AWB failed: {ec}";
+                        return ErrCode;
+                    }
 
                     // ========================================
-                    // 6. Demosaic - 已修改支援 AI 模型
+                    // 3. Demosaic - 已修改支援 AI 模型
                     // ========================================
+                    enumAiModelType modelType;
                     mPipeProcess.TryGetValue(PipelineKey.Demosaic, out obj);
                     switch (obj)
                     {
@@ -364,35 +383,41 @@ namespace ISP_Comparision
                                 return ErrCode;
                             }
                             break;
-                        case enumDemosaic.Ai_Demosaic:
-                            // 取得選定的 AI 模型類型
-                            mPipeProcess.TryGetValue(PipelineKey.AiModelType, out var modelObj);
-                            enumAiModelType modelType = (modelObj is enumAiModelType mt) ? mt : enumAiModelType.ModelOptimized;
+                        case enumDemosaic.Ai_RawModel:
+                        case enumDemosaic.Ai_OptimizedModel:
+                        case enumDemosaic.Ai_Fp16Model:
 
-                            // 取得模型檔案路徑
+                            // 1. 根據包含的類型賦值 (將 C++ 的 :: 全部修正為 C# 的 .)
+                            if (obj.Equals(enumDemosaic.Ai_RawModel))
+                                modelType = enumAiModelType.ModelRaw;
+                            else if (obj.Equals(enumDemosaic.Ai_OptimizedModel))
+                                modelType = enumAiModelType.ModelOptimized;
+                            else
+                                modelType = enumAiModelType.ModelFloat16;
+
+
+                            // 2. 取得模型檔案路徑
                             string modelPath = GetModelPath(modelType);
 
-                            // 檢查模型檔案是否存在
+                            // 3. 檢查模型檔案是否存在
                             if (!File.Exists(modelPath))
                             {
                                 ErrMsg = $"AI model file not found: {modelPath}";
                                 return ErrCode;
                             }
 
-                            // 呼叫 AI Demosaic（假設 ISP_Processor 有相應的過載方法）
-                            // 如果 DLL 不支援路徑參數，需要先用 SetAiDemosaicModel 或類似方法設定
+                            // 4. 呼叫 AI Demosaic
                             ec = isp.AiDemosaic(ref Output_Channel, out Output_Color, modelPath);
                             if (ec != ISP_ErrCode.Ok)
                             {
                                 ErrMsg = $"AI Demosaic failed: {ec}, model: {modelPath}";
                                 return ErrCode;
                             }
-
                             break;
                     }
 
                     // ========================================
-                    // 7. 色彩校正
+                    // 4. 色彩校正
                     // ========================================
                     mPipeProcess.TryGetValue(PipelineKey.ColorCorrection, out obj);
                     switch (obj)
@@ -405,17 +430,28 @@ namespace ISP_Comparision
                                 return ErrCode;
                             }
 
-                            ISP_ErrCode colorEc = isp.ColorCorrection(ref Output_Color, ref ccm, out Output_Color);
-                            if (colorEc != ISP_ErrCode.Ok)
+                            ec = isp.ColorCorrection(ref Output_Color, ref ccm, out Output_Color);
+                            if (ec != ISP_ErrCode.Ok)
                             {
-                                ErrMsg = $"Color correction failed: {colorEc}";
+                                ErrMsg = $"Color correction failed: {ec}";
                                 return ErrCode;
                             }
                             break;
                     }
 
                     // ========================================
-                    // 8. 色調映射
+                    // 使用 P50 做正規化
+                    // ========================================
+                    ec = isp.NormalizeExposureByP50(ref Output_Color, Target_P50);
+                    if (ec != ISP_ErrCode.Ok)
+                    {
+                        ErrMsg = $"NormalizeExposureByP50 failed: {ec}";
+                        return ErrCode;
+                    }
+
+
+                    // ========================================
+                    // 5. 色調映射
                     // ========================================
                     mPipeProcess.TryGetValue(PipelineKey.ToneMapping, out obj);
                     switch (obj)
@@ -431,7 +467,7 @@ namespace ISP_Comparision
                     }
 
                     // ========================================
-                    // 9. 銳化
+                    // 6. 銳化
                     // ========================================
                     mPipeProcess.TryGetValue(PipelineKey.Sharpening, out obj);
                     switch (obj)
