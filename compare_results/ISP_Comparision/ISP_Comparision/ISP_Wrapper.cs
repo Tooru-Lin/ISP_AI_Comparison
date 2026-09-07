@@ -120,9 +120,6 @@ namespace ISP_CSharp
             out int black,
             out int white,
             float[] cam_mul,      // 輸出：4 個 float
-            float[] pre_mul,      // 輸出：4 個 float
-            out ISP_Mat cam_xyz,
-            out ISP_Mat xyz_srgb,
             out ISP_Mat cam_rgb,
             out ISP_Mat raw32);
 
@@ -133,6 +130,14 @@ namespace ISP_CSharp
             ref ISP_Mat raw,
             float black_level,
             float white_level);
+
+        // Demosaic (傳統)
+        [DllImport(DLL_NAME, CallingConvention = CallingConvention.Cdecl)]
+        public static extern ISP_ErrCode ISP_Denoise_Bilateral(
+            IntPtr ctx,
+            ref ISP_Mat raw,
+            float sigmaColor, 
+            float sigmaSpace);
 
         // Demosaic (傳統)
         [DllImport(DLL_NAME, CallingConvention = CallingConvention.Cdecl)]
@@ -380,15 +385,10 @@ namespace ISP_CSharp
             out int height,
             out int black,
             out int white,
-            out float[] cam_mul,
-            out float[] pre_mul,
-            out ISP_Mat cam_xyz,
-            out ISP_Mat xyz_srgb,
+            float[] cam_mul,
             out ISP_Mat cam_rgb,
             out ISP_Mat raw32)
         {
-            cam_mul = new float[4];
-            pre_mul = new float[4];
 
             ISP_ErrCode ec = ISP_NativeMethods.ISP_LoadRawWithLibRaw(
                 ctx,
@@ -398,9 +398,6 @@ namespace ISP_CSharp
                 out black,
                 out white,
                 cam_mul,
-                pre_mul,
-                out cam_xyz,
-                out xyz_srgb,
                 out cam_rgb,
                 out raw32);
 
@@ -421,6 +418,20 @@ namespace ISP_CSharp
                 black_level,
                 white_level);
         }
+
+        /// <summary>
+        /// Denoise
+        /// </summary>
+        public ISP_ErrCode Denoise_Bilateral(
+            ref ISP_Mat raw, float sigmaColor, float sigmaSpace)
+        {
+            return ISP_NativeMethods.ISP_Denoise_Bilateral(
+                ctx,
+                ref raw,
+                sigmaColor, 
+                sigmaSpace);
+        }
+
 
         /// <summary>
         /// Demosaic - 去馬賽克 (傳統)

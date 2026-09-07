@@ -112,10 +112,12 @@ namespace ISP_Comparision
             cbDemosaic1.SelectedIndexChanged += (s, e) => isp1.SetOption("Demosaic", cbDemosaic1.SelectedItem?.ToString() ?? "None");
             cbAWB1.SelectedIndexChanged += (s, e) => isp1.SetOption("Auto White Balance", cbAWB1.SelectedItem?.ToString() ?? "None");
             cbCCM1.SelectedIndexChanged += (s, e) => isp1.SetOption("Color Correction Matrix", cbCCM1.SelectedItem?.ToString() ?? "None");
-            cbNoise1.SelectedIndexChanged += (s, e) => isp1.SetOption("Noise Reduction", cbNoise1.SelectedItem?.ToString() ?? "None");
+            cbDenoise1.SelectedIndexChanged += (s, e) => isp1.SetOption("Noise Reduction", cbDenoise1.SelectedItem?.ToString() ?? "None");
             cbTone1.SelectedIndexChanged += (s, e) => isp1.SetOption("Tone Mapping", cbTone1.SelectedItem?.ToString() ?? "None");
             cbDistort1.SelectedIndexChanged += (s, e) => isp1.SetOption("Distortion Correction", cbDistort1.SelectedItem?.ToString() ?? "None");
             cbSharpen1.SelectedIndexChanged += (s, e) => isp1.SetOption("Sharpening", cbSharpen1.SelectedItem?.ToString() ?? "None");
+            cbDenoise1.SelectedIndexChanged += (s, e) => isp1.SetOption("Denoise", cbDenoise1.SelectedItem?.ToString() ?? "None");
+
 
             cbBWLevel2.SelectedIndexChanged += (s, e) => isp2.SetOption("Black & White Level", cbBWLevel2.SelectedItem?.ToString() ?? "None");
             cbLensShading2.SelectedIndexChanged += (s, e) => isp2.SetOption("Lens Shading", cbLensShading2.SelectedItem?.ToString() ?? "None");
@@ -124,7 +126,7 @@ namespace ISP_Comparision
             cbDemosaic2.SelectedIndexChanged += (s, e) => isp2.SetOption("Demosaic", cbDemosaic2.SelectedItem?.ToString() ?? "None");
             cbAWB2.SelectedIndexChanged += (s, e) => isp2.SetOption("Auto White Balance", cbAWB2.SelectedItem?.ToString() ?? "None");
             cbCCM2.SelectedIndexChanged += (s, e) => isp2.SetOption("Color Correction Matrix", cbCCM2.SelectedItem?.ToString() ?? "None");
-            cbNoise2.SelectedIndexChanged += (s, e) => isp2.SetOption("Noise Reduction", cbNoise2.SelectedItem?.ToString() ?? "None");
+            cbDenoise2.SelectedIndexChanged += (s, e) => isp2.SetOption("Noise Reduction", cbDenoise2.SelectedItem?.ToString() ?? "None");
             cbTone2.SelectedIndexChanged += (s, e) => isp2.SetOption("Tone Mapping", cbTone2.SelectedItem?.ToString() ?? "None");
             cbDistort2.SelectedIndexChanged += (s, e) => isp2.SetOption("Distortion Correction", cbDistort2.SelectedItem?.ToString() ?? "None");
             cbSharpen2.SelectedIndexChanged += (s, e) => isp2.SetOption("Sharpening", cbSharpen2.SelectedItem?.ToString() ?? "None");
@@ -195,18 +197,36 @@ namespace ISP_Comparision
 
             try
             {
-                string rawPath = originalImagePath;
+                var inputs = new Dictionary<string, object>(StringComparer.OrdinalIgnoreCase)
+                {
+                    { "ImagePath", originalImagePath },
+                    { "Target_P50", (float)nud_P50.Value }
+                };
 
-                mController1.Measure(originalImagePath, out ISP_Mat Output_Color, out ISP_Mat Output_Channel, (float)nud_P50.Value);
+                if (mController1 == null) mController1 = new Controller();
 
-                // 先 dispose/clear 由 viewer 處理
-                if (Output_Color.data != IntPtr.Zero)
-                    viewer1.SetImage(Analysis.ToBitmap(Output_Color));
-                else if (Output_Color.channels == 3)
-                    viewer1.SetImage(ToBitmapSelectChannel(Output_Color, 1, 1.0f));
+                mController1.Measure(inputs, out Dictionary<string, object> outputs);
+
+                // 取回 Output_Color / Output_Grey (channel)
+                ISP_Mat outputColor = new ISP_Mat();
+                ISP_Mat outputGrey = new ISP_Mat();
+                if (outputs.Count != 0)
+                {
+                    if (outputs.TryGetValue("Output_Color", out var oc) && oc is ISP_Mat ocmat) outputColor = ocmat;
+                    if (outputs.TryGetValue("Output_Channel", out var ch) && ch is ISP_Mat chmat) outputGrey = chmat;
+
+                    // 若有 timings 則顯示（非同步安全：timings 是呼叫端 snapshot）
+                    if (outputs.TryGetValue("Timings", out var t) && t is Dictionary<string, TimeSpan> timings)
+                        UpdateTimingLabels(timings, 1);
+                }
+
+                // 顯示影像
+                if (outputColor.data != IntPtr.Zero)
+                    viewer1.SetImage(Analysis.ToBitmap(outputColor));
+                else if (outputColor.channels == 3)
+                    viewer1.SetImage(ToBitmapSelectChannel(outputColor, 1, 1.0f));
                 else
-                    viewer1.SetImage(Analysis.ToBitmap(Output_Channel));
-
+                    viewer1.SetImage(Analysis.ToBitmap(outputGrey));
             }
             catch (Exception ex)
             {
@@ -221,18 +241,33 @@ namespace ISP_Comparision
 
             try
             {
-                string rawPath = originalImagePath;
+                var inputs = new Dictionary<string, object>(StringComparer.OrdinalIgnoreCase)
+                {
+                    { "ImagePath", originalImagePath },
+                    { "Target_P50", (float)nud_P50.Value }
+                };
 
-                mController2.Measure(originalImagePath, out ISP_Mat Output_Color, out ISP_Mat Output_Channel, (float)nud_P50.Value);
+                if (mController2 == null) mController2 = new Controller();
 
-                // 先 dispose/clear 由 viewer 處理
-                if (Output_Color.data != IntPtr.Zero)
-                    viewer2.SetImage(Analysis.ToBitmap(Output_Color));
-                else if (Output_Color.channels == 3)
-                    viewer2.SetImage(ToBitmapSelectChannel(Output_Color, 1, 1.0f));
+                mController2.Measure(inputs, out Dictionary<string, object> outputs);
+
+                ISP_Mat outputColor = new ISP_Mat();
+                ISP_Mat outputGrey = new ISP_Mat();
+                if (outputs != null)
+                {
+                    if (outputs.TryGetValue("Output_Color", out var oc) && oc is ISP_Mat ocmat) outputColor = ocmat;
+                    if (outputs.TryGetValue("Output_Channel", out var ch) && ch is ISP_Mat chmat) outputGrey = chmat;
+
+                    if (outputs.TryGetValue("Timings", out var t) && t is Dictionary<string, TimeSpan> timings)
+                        UpdateTimingLabels(timings, 2);
+                }
+
+                if (outputColor.data != IntPtr.Zero)
+                    viewer2.SetImage(Analysis.ToBitmap(outputColor));
+                else if (outputColor.channels == 3)
+                    viewer2.SetImage(ToBitmapSelectChannel(outputColor, 1, 1.0f));
                 else
-                    viewer2.SetImage(Analysis.ToBitmap(Output_Channel));
-
+                    viewer2.SetImage(Analysis.ToBitmap(outputGrey));
             }
             catch (Exception ex)
             {
@@ -433,15 +468,6 @@ namespace ISP_Comparision
             return new ImageMetrics { SNR = snr, MTF = mtf, DeltaE = de, TonePeak = tone };
         }
 
-        private void cbBWLevel1_SelectedIndexChanged(object sender, EventArgs e)
-        {
-        }
-
-        private void cbLinearity1_SelectedIndexChanged(object sender, EventArgs e)
-        {
-
-        }
-
         // ---------- 新增：根據 enum 動態填充 ComboBox 並綁定 handler ----------
         private void PopulateComboBoxesFromEnums()
         {
@@ -467,8 +493,8 @@ namespace ISP_Comparision
             RegisterEnumCombo(cbCCM1, PipelineKey.ColorCorrection, typeof(enumColorCorrection));
             RegisterEnumCombo(cbCCM2, PipelineKey.ColorCorrection, typeof(enumColorCorrection));
 
-            RegisterEnumCombo(cbNoise1, PipelineKey.NoiseReduction, typeof(enumNoiseReduction));
-            RegisterEnumCombo(cbNoise2, PipelineKey.NoiseReduction, typeof(enumNoiseReduction));
+            RegisterEnumCombo(cbDenoise1, PipelineKey.Denoise, typeof(enumDenoise));
+            RegisterEnumCombo(cbDenoise2, PipelineKey.Denoise, typeof(enumDenoise));
 
             RegisterEnumCombo(cbTone1, PipelineKey.ToneMapping, typeof(enumToneMapping));
             RegisterEnumCombo(cbTone2, PipelineKey.ToneMapping, typeof(enumToneMapping));
@@ -722,6 +748,39 @@ namespace ISP_Comparision
             else
             {
                 this.Text = baseTitle;
+            }
+        }
+
+        // 在檔案中新增 Helper：將 Controller 的 LastModuleTimings 顯示到 UI
+        private void UpdateTimingLabels(Dictionary<string, TimeSpan> timings, int pipelineIndex)
+        {
+            if (timings == null) return;
+
+            Func<string, string> fmt = k =>
+            {
+                if (!timings.TryGetValue(k, out var t)) return "-";
+                return $"{(int)t.TotalMilliseconds} ms";
+            };
+
+            if (pipelineIndex == 1)
+            {
+                if (lblBWTime1 != null) lblBWTime1.Text = fmt("BlackWhiteLevel");
+                if (lblAWBTime1 != null) lblAWBTime1.Text = fmt("AutoWhiteBalance");
+                if (lblDenoiseTime1 != null) lblDenoiseTime1.Text = fmt("Denoise");
+                if (lblDemosaicTime1 != null) lblDemosaicTime1.Text = fmt("Demosaic");
+                if (lblCCMTime1 != null) lblCCMTime1.Text = fmt("ColorCorrection");
+                if (lblToneTime1 != null) lblToneTime1.Text = fmt("ToneMapping");
+                if (lblSharpenTime1 != null) lblSharpenTime1.Text = fmt("Sharpening");
+            }
+            else
+            {
+                if (lblBWTime2 != null) lblBWTime2.Text = fmt("BlackWhiteLevel");
+                if (lblAWBTime2 != null) lblAWBTime2.Text = fmt("AutoWhiteBalance");
+                if (lblDenoiseTime2 != null) lblDenoiseTime2.Text = fmt("Denoise");
+                if (lblDemosaicTime2 != null) lblDemosaicTime2.Text = fmt("Demosaic");
+                if (lblCCMTime2 != null) lblCCMTime2.Text = fmt("ColorCorrection");
+                if (lblToneTime2 != null) lblToneTime2.Text = fmt("ToneMapping");
+                if (lblSharpenTime2 != null) lblSharpenTime2.Text = fmt("Sharpening");
             }
         }
     }

@@ -173,7 +173,7 @@ class BayerDataset(Dataset):
         ch_R  = np.clip(ch_R, 0.0, 1.0)
         ch_G1 = np.clip(ch_G1, 0.0, 1.0)
         ch_G2 = np.clip(ch_G2, 0.0, 1.0)
-        ch_B  = np.clip(ch_B, 0.0, 1.0)
+        ch_B = np.clip(ch_B, 0.0, 1.0)
 
         # 6. 合成 4 通道影像 (H/2, W/2, 4)
         raw4ch = np.stack([ch_R, ch_G1, ch_G2, ch_B], axis=-1)
@@ -229,54 +229,56 @@ class BayerDataset(Dataset):
     
 
 
-# txt_path = "C:/Users/eevo1/OneDrive/Desktop/ISP_AI_Comparison/data/raw/Sony/Sony_val_list.txt"
-# with open(txt_path, "r", encoding="utf-8") as f:
-#     lines = f.readlines()
+txt_path = "C:/Users/eevo1/OneDrive/Desktop/ISP_AI_Comparison/data/raw/Sony/Sony_train_list.txt"
+with open(txt_path, "r", encoding="utf-8") as f:
+    lines = f.readlines()
 
 
-# black=512
-# white=16383
-# cam_mul=[1976, 1024, 2316, 1024]
-# crop_size=256
-# num_crops=10
-# crop_h = crop_w = crop_size
+black=512
+white=16383
+cam_mul=[1976, 1024, 2316, 1024]
+crop_size=256
+num_crops=10
+crop_h = crop_w = crop_size
 
-# for line in tqdm(lines):
-#     parts = line.strip().split()
-#     if len(parts) < 2:
-#         continue
+for line in tqdm(lines):
+    parts = line.strip().split()
+    if len(parts) < 2:
+        continue
 
-#     short_path = os.path.join("./data/raw/Sony", parts[0])
-#     long_path  = os.path.join("./data/raw/Sony", parts[1])
+    short_path = os.path.join("./data/raw/Sony", parts[0])
+    long_path  = os.path.join("./data/raw/Sony", parts[1])
 
-#     short_img = BayerDataset.process_raw(short_path, black, white, cam_mul)
-#     long_img  = BayerDataset.process_raw(long_path, black, white, cam_mul)
+    short_img = BayerDataset.process_raw(short_path, black, white, cam_mul)
+    long_img  = BayerDataset.process_raw(long_path, black, white, cam_mul)
 
-#     # 保證 crop 對齊
-#     H, W, C = short_img.shape
-#     crops_short = []
-#     crops_long  = []
-#     for _ in range(num_crops):
-#         y = np.random.randint(0, H - crop_h + 1)
-#         x = np.random.randint(0, W - crop_w + 1)
+    # 保證 crop 對齊
+    H, W, C = short_img.shape
+    crops_short = []
+    crops_long  = []
+    for _ in range(num_crops):
+        y = np.random.randint(0, H - crop_h + 1)
+        x = np.random.randint(0, W - crop_w + 1)
 
-#         short_crop = short_img[y:y+crop_h, x:x+crop_w, :]
-#         long_crop  = long_img[y:y+crop_h, x:x+crop_w, :]
+        short_crop = short_img[y:y+crop_h, x:x+crop_w, :]
+        long_crop  = long_img[y:y+crop_h, x:x+crop_w, :]
 
-#         # -----------------------------
-#         # 轉 long_crop 為 RGB 3 通道
-#         # R, G = (G1+G2)/2, B
-#         long_rgb = np.stack([
-#             long_crop[:,:,0],                    # R
-#             (long_crop[:,:,1] + long_crop[:,:,2])/2,  # G = (G1+G2)/2
-#             long_crop[:,:,3]                     # B
-#         ], axis=-1)
 
-#         crops_short.append(short_crop)
-#         crops_long.append(long_rgb)
 
-#     # 存檔
-#     output_dir = "C:/Users/eevo1/OneDrive/Desktop/ISP_AI_Comparison/data/raw/Sony/Val_Crops"
-#     base_name = os.path.splitext(os.path.basename(short_path))[0]
-#     np.save(os.path.join(output_dir, f"{base_name}_short.npy"), np.array(crops_short))  # 4通道 Bayer
-#     np.save(os.path.join(output_dir, f"{base_name}_long.npy"),  np.array(crops_long))   # 3通道 RGB
+        # -----------------------------
+        # 轉 long_crop 為 RGB 3 通道
+        # R, G = (G1+G2)/2, B
+        long_rgb = np.stack([
+            long_crop[:,:,0],                    # R
+            (long_crop[:,:,1] + long_crop[:,:,2])/2,  # G = (G1+G2)/2
+            long_crop[:,:,3]                     # B
+        ], axis=-1)
+
+        crops_short.append(short_crop)
+        crops_long.append(long_rgb)
+
+    # 存檔
+    output_dir = "C:/Users/eevo1/OneDrive/Desktop/ISP_AI_Comparison/data/raw/Sony/Train_Crops"
+    base_name = os.path.splitext(os.path.basename(short_path))[0]
+    np.save(os.path.join(output_dir, f"{base_name}_short.npy"), np.array(crops_short))  # 4通道 Bayer
+    np.save(os.path.join(output_dir, f"{base_name}_long.npy"),  np.array(crops_long))   # 3通道 RGB

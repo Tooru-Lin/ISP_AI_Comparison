@@ -189,11 +189,7 @@ ISP_ErrCode ISP_LoadRawWithLibRaw(
     int* black,
     int* white,
     float* cam_mul,
-    float* pre_mul,
-    ISP_Mat* cam_xyz,
     ISP_Mat* cam_rgb,
-    ISP_Mat* xyz_srgb,
-
     ISP_Mat* raw32) {
     try {
         if (ctx == nullptr || filename == nullptr) {
@@ -203,15 +199,15 @@ ISP_ErrCode ISP_LoadRawWithLibRaw(
         ISP* isp = reinterpret_cast<ISP*>(ctx->isp_instance);
 
         int w, h, b, wh;
-        std::vector<float> cam_mul_vec, pre_mul_vec;
-        cv::Mat cam_xyz_mat, xyz_srgb_mat, cam_rgb_mat, raw32_mat;
+        std::vector<float> cam_mul_vec;
+        cv::Mat cam_rgb_mat, raw32_mat;
 
         ISP::ErrCode ec = isp->loadRawWithLibRaw(
             filename,
             w, h, b, wh,
-            cam_mul_vec, pre_mul_vec,
-            cam_xyz_mat, xyz_srgb_mat, 
-            cam_rgb_mat, raw32_mat);
+            cam_mul_vec,
+            cam_rgb_mat, 
+            raw32_mat);
 
         if (ec != ISP::ErrCode::Ok) {
             return static_cast<ISP_ErrCode>(ec);
@@ -226,12 +222,9 @@ ISP_ErrCode ISP_LoadRawWithLibRaw(
         // ½Æ»s°}¦C
         for (int i = 0; i < 4; i++) {
             cam_mul[i] = cam_mul_vec[i];
-            pre_mul[i] = pre_mul_vec[i];
         }
 
         // Âà´« Mat
-        *cam_xyz = *cvmat_to_isp_mat(cam_xyz_mat);
-        *xyz_srgb = *cvmat_to_isp_mat(xyz_srgb_mat);
         *cam_rgb = *cvmat_to_isp_mat(cam_rgb_mat);
         *raw32 = *cvmat_to_isp_mat(raw32_mat);
 
@@ -268,6 +261,34 @@ ISP_ErrCode ISP_BlackAndWhiteLevelCorrection(
         return ISP_Exception;
     }
 }
+
+
+ISP_ErrCode ISP_Denoise_Bilateral(
+    ISP_Context* ctx,
+    ISP_Mat* raw,
+    float sigmaColor,
+    float sigmaSpace) {
+    try {
+        if (ctx == nullptr || raw == nullptr) {
+            return ISP_InvalidInput;
+        }
+
+        ISP* isp = reinterpret_cast<ISP*>(ctx->isp_instance);
+        cv::Mat raw_mat = isp_mat_to_cvmat(raw);
+        cv::Mat out_mat;
+
+        ISP::ErrCode ec = isp->Denoise_Bilateral(raw_mat, sigmaColor, sigmaSpace);
+
+        memcpy(raw->data, raw_mat.data, raw->step * raw->rows);
+
+        return static_cast<ISP_ErrCode>(ec);
+    }
+    catch (const std::exception& ex) {
+        std::cerr << "Exception in ISP_Denoise_Bilateral: " << ex.what() << std::endl;
+        return ISP_Exception;
+    }
+}
+
 
 ISP_ErrCode ISP_Demosaic(
     ISP_Context* ctx,

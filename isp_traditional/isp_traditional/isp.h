@@ -33,8 +33,9 @@ public:
     ISP() {
         // ----------------- Bool 參數 map -----------------
         // map 直接存值，不用 reference
-        bool_params["DoWhiteBlackLevel"] = true;  // 是否執行黑白電平校正
+        bool_params["DoWhiteBlackLevel"] = true; // 是否執行黑白電平校正
         bool_params["DoAWB"] = true;             // 是否執行白平衡
+        bool_params["DoDenoise"] = true;         // 是否執行 denoise
         bool_params["DoDemosaic"] = true;        // 是否執行 demosaic
         bool_params["DoCCM"] = true;             // 是否執行色彩校正(CCM)
         bool_params["DoGamma"] = true;           // 是否執行 Gamma 校正
@@ -42,7 +43,7 @@ public:
 
         // ----------------- Enum 參數 map -----------------
         enumAWB_params["AWB_Method"] = AWB_Method::Default;       // 預設 AWB 方法
-        enumDemosaic_params["Demosaic_Method"] = Demosaic_Method::AI; // 預設 demosaic 方法
+        enumDemosaic_params["Demosaic_Method"] = Demosaic_Method::Default; // 預設 demosaic 方法
     }
 
     // ----------------- Bool 參數操作 -----------------
@@ -74,14 +75,14 @@ public:
         int& black,        // 輸出黑階
         int& white,        // 輸出白階
         std::vector<float>& cam_mul,  // AWB before demosaic
-        std::vector<float>& pre_mul,  // AWB after demosaic
-        cv::Mat& cam_xyz,             // 輸出 3x3 相機→XYZ 矩陣
-        cv::Mat& xyz_srgb,            // 輸出 3x3 XYZ→sRGB 矩陣
         cv::Mat& cam_rgb,             // 輸出 3x3 相機 RGB→相機 RGB 矩陣
         cv::Mat& raw32);              // 輸出 raw 32F
 
     // 黑白電平校正（normalize）
     ErrCode BlackAndWhiteLevelCorrection(cv::Mat& raw, float black_level, float white_level);
+
+    // Denoise
+    ErrCode Denoise_Bilateral(cv::Mat& raw, float sigmaColor = 0.05, float sigmaSpace = 6);
 
     // Bayer去馬賽克
     ErrCode demosaic(const cv::Mat& raw, cv::Mat& out_bgr32);

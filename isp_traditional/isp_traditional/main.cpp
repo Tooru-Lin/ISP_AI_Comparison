@@ -14,8 +14,8 @@ int main() {
 
     //DiagnosticCheck();
 
-    std::string path = "C:/Users/eevo1/OneDrive/Desktop/ISP_AI_Comparison/data/raw/Sony/Sony/short/00001_00_0.04s.ARW";
-    //std::string path = "C:/Users/eevo1/OneDrive/Desktop/ISP_AI_Comparison/data/raw/Sony/Sony/long/00001_00_10s.ARW";
+    //std::string path = "C:/Users/eevo1/OneDrive/Desktop/ISP_AI_Comparison/data/raw/Sony/Sony/short/00001_00_0.1s.ARW";
+    std::string path = "C:/Users/eevo1/OneDrive/Desktop/ISP_AI_Comparison/data/raw/Sony/Sony/long/00001_00_10s.ARW";
 
     // 模型所在資料夾 (請根據實際路徑調整)
     std::string ModelDir = "C:/Users/eevo1/OneDrive/Desktop/ISP_AI_Comparison/models";
@@ -25,8 +25,7 @@ int main() {
 
     int black, white, width, height;
     std::vector<float> cam_mul;
-    std::vector<float> pre_mul;
-    cv::Mat cam_xyz, xyz_srgb, cam_rgb;
+    cv::Mat cam_rgb;
     cv::Mat raw32;
 
     // 使用 ErrCode 回傳
@@ -36,9 +35,6 @@ int main() {
         black,                      // 輸出黑階
         white,                      // 輸出白階
         cam_mul,                    // AWB before demosaic
-        pre_mul,                    // AWB after demosaic
-        cam_xyz,                    // 輸出 3x3 相機→XYZ 矩陣
-        xyz_srgb,
         cam_rgb,                    // 輸出 3x3 相機 RGB→相機 RGB 矩陣
         raw32);
 
@@ -47,12 +43,10 @@ int main() {
         return -1;
     }
 
-    printMat(cam_xyz, "cam_xyz");
-
     // raw32 已為 CV_32F
     // 原 raw
     double scale = 0.5;
-    //isp.showPreview(raw32, "Origin", scale);
+    isp.showPreview(raw32, "Origin", scale);
 
     //......................................................................................................//
 
@@ -82,18 +76,19 @@ int main() {
         {
             case ISP::AWB_Method::Default:
             {
-                float g_ref = cam_mul[1]; // choose G as reference
-                gain_R = cam_mul[0] / g_ref; // R
-                gain_G = cam_mul[1] / g_ref; // G (first G)
-                gain_G = cam_mul[1] / g_ref; // second G (depends on ordering)
-                gain_B = cam_mul[2] / g_ref; // B
+                float g_ref = (cam_mul[1] > 0.0f) ? cam_mul[1] : 1.0f;
+
+                std::vector<float> gains(4);
+                gain_R = cam_mul[0] / g_ref; // R Gain
+                gain_G = 1.0f;               // G1 Gain
+                gain_B = cam_mul[2] / g_ref; // B Gain
 
                 ec = isp.ApplyAWBGain(raw32, height, width, gain_R, gain_G, gain_B);
                 if (ec != ISP::ErrCode::Ok) {
                     std::cerr << "ApplyAWBGain failed with ErrCode=" << static_cast<int>(ec) << std::endl;
                 }
 
-                //isp.showPreview(raw32, "AWB (Default)", scale);
+                isp.showPreview(raw32, "AWB (Default)", scale);
             }
             break;
             case ISP::AWB_Method::GrayWorld:
@@ -141,6 +136,23 @@ int main() {
 
     //......................................................................................................//
 
+    if (isp.getParamBool("DoDenoise"))
+    {
+        ec = isp.Denoise_Bilateral(raw32);
+        if (ec != ISP::ErrCode::Ok) {
+            std::cerr << "Denoise failed with ErrCode=" << static_cast<int>(ec) << std::endl;
+            return -1;
+        }
+
+        //isp.showPreview(raw32, "Denoise", scale);
+    }
+
+
+
+    //......................................................................................................//
+
+
+
 
     // 去馬賽克 (Demosaic)
     cv::Mat bgr32;
@@ -152,12 +164,12 @@ int main() {
             return -1;
         }
 
-        //isp.showPreview(bgr32, "Demosaic", scale);
+        isp.showPreview(bgr32, "Demosaic", scale);
     }
     else if (isp.getParamBool("DoDemosaic") && isp.getParamDemosaic() == ISP::Demosaic_Method::AI)
     {
         // 使用標準 C++ 字串拼接，並檢查檔案是否存在
-        std::string modelPath = ModelDir + "/model_fp16.onnx";
+        std::string modelPath = ModelDir + "/model_raw.onnx";
         std::ifstream mf(modelPath.c_str());
         if (!mf.good()) {
             std::cerr << "AI model not found: " << modelPath << std::endl;
@@ -171,7 +183,7 @@ int main() {
             return -1;
         }
 
-        //isp.showPreview(bgr32, "Demosaic", scale);
+        isp.showPreview(bgr32, "Demosaic", scale);
     }
 
     //......................................................................................................//
@@ -180,24 +192,6 @@ int main() {
     // 色彩校正
     if (isp.getParamBool("DoCCM"))
     {
-        //cv::Mat ccm_raw = xyz_srgb * cam_xyz;
-
-        //printMat(xyz_srgb, "xyz_srgb");
-        //printMat(cam_xyz, "cam_xyz");
-        //printMat(ccm_raw, "ccm_raw");
-
-        //cv::Mat ccm = cv::Mat::zeros(3, 3, CV_32F);
-        //for (int i = 0; i < 3; ++i) {
-        //    float row_sum = ccm_raw.at<float>(i, 0) + ccm_raw.at<float>(i, 1) + ccm_raw.at<float>(i, 2);
-        //    if (std::abs(row_sum) > 1e-6f) {
-        //        ccm.at<float>(i, 0) = ccm_raw.at<float>(i, 0) / row_sum;
-        //        ccm.at<float>(i, 1) = ccm_raw.at<float>(i, 1) / row_sum;
-        //        ccm.at<float>(i, 2) = ccm_raw.at<float>(i, 2) / row_sum;
-        //    }
-        //}
-        //printMat(ccm, "ccm_final");
-
-
         printMat(cam_rgb, "cam_rgb");
 
         cv::Mat bgr32_cc;
@@ -215,13 +209,13 @@ int main() {
     //......................................................................................................//
     // 曝光正規化(P50)
 
-    isp.normalizeExposureByP50(bgr32, 0.8);
+    isp.normalizeExposureByP50(bgr32, 0.5);
     if (ec != ISP::ErrCode::Ok) {
         std::cerr << "normalizeExposureByP50 failed with ErrCode=" << static_cast<int>(ec) << std::endl;
     }
     cv::threshold(bgr32, bgr32, 0.0, 0.0, cv::THRESH_TOZERO); // clip <0
     cv::threshold(bgr32, bgr32, 1.0, 1.0, cv::THRESH_TRUNC);  // clip >1
-    isp.showPreview(bgr32, "Tone Mapping", scale);
+    isp.showPreview(bgr32, "Normalize Exposure By P50", scale);
 
 
     //......................................................................................................//
@@ -246,7 +240,7 @@ int main() {
 
     if (isp.getParamBool("DoSharpen"))
     {
-        ec = isp.sharpening(bgr32);
+        ec = isp.sharpening(bgr32, 0.5);
         if (ec != ISP::ErrCode::Ok) {
             std::cerr << "sharpening failed with ErrCode=" << static_cast<int>(ec) << std::endl;
         }

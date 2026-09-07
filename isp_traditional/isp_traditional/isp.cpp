@@ -1,5 +1,6 @@
 ﻿#include "isp.h"
 #include <opencv2/opencv.hpp>
+#include <opencv2/imgproc.hpp>
 #include <libraw/libraw.h>
 #include <iostream>
 #include <algorithm>
@@ -8,7 +9,8 @@
 #include <functional>
 #include <filesystem>
 #include <onnxruntime_cxx_api.h>
-#include <algorithm>
+#include <omp.h>
+
 
 // 在 includes 之後加入（靠近檔案頂端）
 static void CalLowHigh(const cv::Mat& img, double& lowVal, double& highVal);
@@ -41,9 +43,6 @@ ISP::ErrCode ISP::loadRawWithLibRaw(
     int& black,                      // 輸出黑階
     int& white,                      // 輸出白階
     std::vector<float>& cam_mul,     // 輸出 AWB gains
-    std::vector<float>& pre_mul,     // 輸出 AWB gains
-    cv::Mat& cam_xyz,                // 輸出 3x3 相機→XYZ 矩陣
-    cv::Mat& xyz2srgb,               // 輸出 3x3 XYZ→sRGB 矩陣
     cv::Mat& cam_rgb,                // 輸出 3x3 相機 RGB→相機 RGB 矩陣
     cv::Mat& raw32                   // 輸出 raw 32F
 )
@@ -64,32 +63,28 @@ ISP::ErrCode ISP::loadRawWithLibRaw(
             return ErrCode::UnpackFailed;
         }
 
-        // 3. 讀取並打印 CFA 資訊
-        std::cout << "CFA description: "
-            << RawProcessor.imgdata.idata.cdesc << std::endl;
-
-        int pattern = RawProcessor.imgdata.idata.filters;
-        std::cout << "CFA pattern: " << RawProcessor.imgdata.idata.cdesc << std::endl;
-
-        std::cout << "CFA 2x2 pattern:" << std::endl;
-        libraw_data_t* data = &RawProcessor.imgdata;
-        for (int y = 0; y < 2; y++) {
-            for (int x = 0; x < 2; x++) {
-                int idx = libraw_COLOR(data, x, y);
-                std::cout << RawProcessor.imgdata.idata.cdesc[idx] << "("
-                    << data->rawdata.raw_image[y * data->sizes.width + x] << ") ";
-            }
-            std::cout << std::endl;
-        }
+        // 3. 讀取 LibRaw 官方標註的黑邊偏移量(取代手動除以 2)
+        int left = RawProcessor.imgdata.sizes.left_margin;
+        int top = RawProcessor.imgdata.sizes.top_margin;
 
         // 4. 讀取影像尺寸
         int raw_width = RawProcessor.imgdata.sizes.raw_width;
         int raw_height = RawProcessor.imgdata.sizes.raw_height;
-        width = RawProcessor.imgdata.sizes.width;  // 有效寬度
+        width = RawProcessor.imgdata.sizes.width;   // 有效寬度
         height = RawProcessor.imgdata.sizes.height;  // 有效高度
 
-        int left = (raw_width - width) / 2;  // 開始列
-        int top = (raw_height - height) / 2;  // 開始行
+        std::cout << "Active Area 2x2 pattern:" << std::endl;
+        libraw_data_t* data = &RawProcessor.imgdata;
+        for (int y = 0; y < 2; y++) {
+            for (int x = 0; x < 2; x++) {
+                // 關鍵：必須加上 (top, left) 才能取得 Active Area 起點的真正顏色
+                int idx = libraw_COLOR(data, y + top, x + left);
+                std::cout << RawProcessor.imgdata.idata.cdesc[idx] << "("
+                    << data->rawdata.raw_image[(y + top) * raw_width + (x + left)] << ") ";
+            }
+            std::cout << std::endl;
+        }
+
 
         // 5. 創建 16-bit Mat 並拷貝有效區域
         cv::Mat raw16(height, width, CV_16U);
@@ -99,32 +94,34 @@ ISP::ErrCode ISP::loadRawWithLibRaw(
                 width * sizeof(ushort));
         }
 
+
         // 6. 讀取 metadata (黑階、白階、WB係數...)
         libraw_data_t* raw = &RawProcessor.imgdata;
         black = raw->color.black;
         white = raw->color.maximum;
 
+
         // 7. 提取白平衡係數
         cam_mul.resize(4);
-        pre_mul.resize(4);
+        //pre_mul.resize(4);
         for (int i = 0; i < 4; i++) {
             cam_mul[i] = raw->color.cam_mul[i];
-            pre_mul[i] = raw->color.pre_mul[i];
+            //pre_mul[i] = raw->color.pre_mul[i];
         }
 
         // 8. 提取相機 RGB → XYZ 矩陣 (3x3)
-        cam_xyz = cv::Mat(3, 3, CV_32F);
-        for (int i = 0; i < 3; i++) {
-            for (int j = 0; j < 3; j++) {
-                cam_xyz.at<float>(i, j) = raw->color.cam_xyz[i][j];
-            }
-        }
+        //cam_xyz = cv::Mat(3, 3, CV_32F);
+        //for (int i = 0; i < 3; i++) {
+        //    for (int j = 0; j < 3; j++) {
+        //        cam_xyz.at<float>(i, j) = raw->color.cam_xyz[i][j];
+        //    }
+        //}
 
         // 9. 設定 XYZ → sRGB 矩陣
-        xyz2srgb = (cv::Mat_<float>(3, 3) <<
-            3.2406, -1.5372, -0.4986,
-            -0.9689, 1.8758, 0.0415,
-            0.0557, -0.2040, 1.0570);
+        //xyz2srgb = (cv::Mat_<float>(3, 3) <<
+        //    3.2406, -1.5372, -0.4986,
+        //    -0.9689, 1.8758, 0.0415,
+        //    0.0557, -0.2040, 1.0570);
 
         // 10. 提取相機 RGB → 相機 RGB 矩陣 (3x3)
         cam_rgb = cv::Mat(3, 3, CV_32F);
@@ -134,6 +131,7 @@ ISP::ErrCode ISP::loadRawWithLibRaw(
             }
         }
 
+
         // 11. 防呆檢查
         if (raw16.empty()) {
             std::cerr << "Failed to load image!" << std::endl;
@@ -142,6 +140,44 @@ ISP::ErrCode ISP::loadRawWithLibRaw(
 
         // 12. 轉換為 CV_32F 格式
         raw16.convertTo(raw32, CV_32F);
+
+
+
+        // *******************************************************
+
+
+        //cv::Mat raw_bgr, test32F;
+
+        //test32F = (raw32 - black) / (white - black);
+        //cv::threshold(test32F, test32F, 0.0, 0.0, cv::THRESH_TOZERO);
+        //cv::threshold(test32F, test32F, 1.0, 1.0, cv::THRESH_TRUNC);
+
+        //std::vector<float> cam_mul_normalized(4);
+        //cam_mul_normalized[0] = cam_mul[0] / cam_mul[1];; // R (y=0, x=0)
+        //cam_mul_normalized[1] = cam_mul[1] / cam_mul[1];; // G (y=0, x=1)
+        //cam_mul_normalized[2] = cam_mul[3] / cam_mul[1];; // G (y=1, x=0)
+        //cam_mul_normalized[3] = cam_mul[2] / cam_mul[1];; // B (y=1, x=1)
+
+        //// 套用 AWB 增益：根據像素位置在 2x2 Bayer 模式中的位置選擇增益
+        //for (int y = 0; y < height; y++) {
+        //    float* row = test32F.ptr<float>(y);
+        //    for (int x = 0; x < width; x++) {
+        //        int idx = ((y & 1) << 1) | (x & 1);
+        //        row[x] *= cam_mul_normalized[idx];
+        //    }
+        //}
+
+        //test32F.convertTo(raw16, CV_16U, 65535.0);
+        //cv::cvtColor(raw16, raw_bgr, cv::COLOR_BayerBG2BGR);
+        //raw_bgr.convertTo(raw_bgr, CV_32F, 1.0 / 65535.0);
+
+        ////normalizeExposureByP50(raw_bgr, 0.4);
+        //showPreview(raw_bgr, "Origin", 0.5);
+
+
+
+        //// *******************************************************
+
         return ErrCode::Ok;
     }
     catch (const std::exception& ex) {
@@ -222,7 +258,6 @@ ISP::ErrCode ISP::BlackAndWhiteLevelCorrection(cv::Mat& raw, float black_level, 
         if (raw.empty()) {
             return ErrCode::EmptyImage;
         }
-
         // 1. 先扣黑電平
         raw -= black_level;
 
@@ -565,13 +600,97 @@ ISP::ErrCode ISP::ApplyAWBGain(cv::Mat& raw32, int height, int width, double gai
     }
 }
 
+
+// 改用 Bilateral Filter（雙邊濾波） 能將處理時間從數秒直接降至 數毫秒（ms） 等級，同時有效避免高斯模糊帶來的邊緣破壞。
+// 在 Bayer RAW 的 4 子通道架構下，結合 OpenMP 對 4 個 Channel 併行處理，可以直接套用以下重構程式碼：
+ISP::ErrCode ISP::Denoise_Bilateral(cv::Mat& raw, float sigmaColor, float sigmaSpace) {
+    try {
+        if (raw.empty()) return ISP::ErrCode::EmptyImage;
+        if (raw.depth() != CV_32F || raw.channels() != 1) return ISP::ErrCode::InvalidInput;
+
+        int h = raw.rows;
+        int w = raw.cols;
+        if (w % 2 != 0 || h % 2 != 0) return ISP::ErrCode::InvalidInput;
+
+        int halfH = h / 2;
+        int halfW = w / 2;
+
+        // Step 1: 拆解 RGGB Bayer RAW 為 4 個子通道 (0: R, 1: Gr, 2: Gb, 3: B)
+        std::vector<cv::Mat> channels(4);
+        for (int i = 0; i < 4; ++i) {
+            channels[i] = cv::Mat(halfH, halfW, CV_32F);
+        }
+
+        for (int y = 0; y < h; ++y) {
+            const float* srcRow = raw.ptr<float>(y);
+            int halfY = y / 2;
+
+            if (y % 2 == 0) { // 偶數列: R (0), Gr (1)
+                float* rRow = channels[0].ptr<float>(halfY);
+                float* grRow = channels[1].ptr<float>(halfY);
+                for (int x = 0; x < w; x += 2) {
+                    rRow[x / 2] = srcRow[x];     // x 偶數 -> R
+                    grRow[x / 2] = srcRow[x + 1]; // x 奇數 -> Gr
+                }
+            }
+            else {          // 奇數列: Gb (2), B (3)
+                float* gbRow = channels[2].ptr<float>(halfY);
+                float* bRow = channels[3].ptr<float>(halfY);
+                for (int x = 0; x < w; x += 2) {
+                    gbRow[x / 2] = srcRow[x];     // x 偶數 -> Gb
+                    bRow[x / 2] = srcRow[x + 1]; // x 奇數 -> B
+                }
+            }
+        }
+
+        // Step 2: 多執行緒對 4 個子通道同步執行 Bilateral Filter
+#pragma omp parallel for
+        for (int c = 0; c < 4; ++c) {
+            cv::Mat denoised;
+            // d = 5 (5x5 視窗)，速度與邊緣保持最佳平衡
+            cv::bilateralFilter(channels[c], denoised, 5, sigmaColor, sigmaSpace);
+            channels[c] = denoised;
+        }
+
+        // Step 3: 將 4 通道覆寫回原 Bayer RAW 記憶體 (RGGB 排列)
+        for (int y = 0; y < h; ++y) {
+            float* dstRow = raw.ptr<float>(y);
+            int halfY = y / 2;
+
+            if (y % 2 == 0) { // 偶數列: R, Gr
+                const float* rRow = channels[0].ptr<float>(halfY);
+                const float* grRow = channels[1].ptr<float>(halfY);
+                for (int x = 0; x < w; x += 2) {
+                    dstRow[x] = rRow[x / 2];
+                    dstRow[x + 1] = grRow[x / 2];
+                }
+            }
+            else {          // 奇數列: Gb, B
+                const float* gbRow = channels[2].ptr<float>(halfY);
+                const float* bRow = channels[3].ptr<float>(halfY);
+                for (int x = 0; x < w; x += 2) {
+                    dstRow[x] = gbRow[x / 2];
+                    dstRow[x + 1] = bRow[x / 2];
+                }
+            }
+        }
+
+        return ISP::ErrCode::Ok;
+    }
+    catch (const std::exception& ex) {
+        std::cerr << "Exception in Denoise_Bilateral: " << ex.what() << std::endl;
+        return ISP::ErrCode::Exception;
+    }
+}
+
+
 // ========================================
 // 功能：Bayer 去馬賽克 (Demosaic)
 // 說明：將 Bayer CFA 影像轉換為 BGR 彩色影像
 // 步驟：
 //   1. 轉換輸入為 float 0~1 範圍
 //   2. 轉 16-bit (OpenCV cvtColor 不支援 float Bayer)
-//   3. 執行 demosaic 操作 (COLOR_BayerBG2BGR)
+//   3. 執行 demosaic 操作 (COLOR_BayerRG2BGR)
 //   4. 轉回 float 並 clip 到 0~1
 // 輸入參數：
 //   - raw: Bayer 原始影像 (CV_16U 或 CV_32F single-channel)
@@ -650,26 +769,6 @@ ISP::ErrCode ISP::demosaic(const cv::Mat& rawIn, cv::Mat& out_bgr32) {
 ISP::ErrCode ISP::SetAiDemosaicModel(const char* modelPath)
 {
     try {
-        // ------------------------------------------------------------------
-        // 0. 防禦機制：將當前模組 (DLL/EXE) 所在目錄註冊至 Windows DLL 搜尋清單
-        //    (解決 ONNX Runtime 找不到同目錄下 cuDNN / CUDA DLL 的問題)
-        // ------------------------------------------------------------------
-        //HMODULE hModule = NULL;
-        //// 直接傳入函式內區域變數 &hModule 的位址，代表「取得包含這行程式碼的 DLL/EXE 模組」
-        //GetModuleHandleExW(
-        //    GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
-        //    (LPCWSTR)&hModule, // 傳入一般的位址，完全合規且不會有編譯警告
-        //    &hModule
-        //);
-
-        //wchar_t modulePath[MAX_PATH];
-        //if (GetModuleFileNameW(hModule, modulePath, MAX_PATH) > 0) {
-        //    std::wstring wpath(modulePath);
-        //    std::wstring moduleDir = wpath.substr(0, wpath.find_last_of(L"\\/"));
-        //    if (AddDllDirectory(moduleDir.c_str())) {
-        //        SetDefaultDllDirectories(LOAD_LIBRARY_SEARCH_DEFAULT_DIRS | LOAD_LIBRARY_SEARCH_USER_DIRS);
-        //    }
-        //}
 
         // 1. 只有在尚未建立 Env 時才初始化 (Lazy Init)
         if (!ort_env) {
@@ -697,10 +796,6 @@ ISP::ErrCode ISP::SetAiDemosaicModel(const char* modelPath)
             is_cuda_enabled = false;
         }
 
-        // ------------------------------------------------------------------
-        // 4. 改用 C++ std::ifstream 讀取模型 Buffer
-        //    (完全繞過 Windows CreateFileMapping 與權限/唯讀鎖定問題)
-        // ------------------------------------------------------------------
         std::ifstream model_file(modelPath, std::ios::binary | std::ios::ate);
         if (!model_file.is_open()) {
             std::cerr << "[AI Demosaic] 無法開啟模型檔案: " << modelPath << std::endl;
@@ -743,15 +838,33 @@ ISP::ErrCode ISP::SetAiDemosaicModel(const char* modelPath)
 }
 
 // 用指定 modelPath 直接推論（單次）
-ISP::ErrCode ISP::AiDemosaicWithModel(cv::Mat& raw, cv::Mat& out_bgr32, const char* modelPath)
+ISP::ErrCode ISP::AiDemosaicWithModel(cv::Mat& raw, cv::Mat& bgr32, const char* modelPath)
 {
     try {
-        // 載入模型（若失敗會回傳錯誤）
+        // 1. 載入模型（若失敗會回傳錯誤）
         ErrCode ec = SetAiDemosaicModel(modelPath);
         if (ec != ErrCode::Ok) return ec;
 
-        // 呼叫已載入的 AiDemosaic
-        return AiDemosaic(raw, out_bgr32);
+        // 2. 執行 demosaic
+        cv::Mat rgb32;
+        AiDemosaic(raw, rgb32);
+        
+        // 3. clip >1 (防止過大)
+        cv::threshold(rgb32, rgb32, 0.0, 0.0, cv::THRESH_TOZERO);
+        cv::threshold(rgb32, rgb32, 1.0, 1.0, cv::THRESH_TRUNC);
+
+        // 4. 先轉成 CV_16U 避免 cvtColor float crash
+        cv::Mat rgb16;
+        rgb32.convertTo(rgb16, CV_16U, 65535.0);
+
+        // 5. 執行 RGB 轉 BGR
+        cv::Mat bgr16;
+        cv::cvtColor(rgb16, bgr16, cv::COLOR_RGB2BGR); // Bayer pattern 視 sensor 而
+
+        // 6. 轉回 float 0~1
+        bgr16.convertTo(bgr32, CV_32F, 1.0 / 65535.0);
+
+        return ErrCode::Ok;
     }
     catch (const std::exception& ex) {
         std::cerr << "Exception in AiDemosaicWithModel: " << ex.what() << std::endl;
